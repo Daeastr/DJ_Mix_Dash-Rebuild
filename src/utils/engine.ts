@@ -203,9 +203,17 @@ export class Deck {
 
     const now = this.context.currentTime;
 
+    this.gateNode.gain.cancelScheduledValues(now);
     this.gateNode.gain.setTargetAtTime(1, now, 0.05);
+    this.fxGain.gain.cancelScheduledValues(now);
     this.fxGain.gain.setTargetAtTime(1, now, 0.05);
     this.delayFeedback.gain.setTargetAtTime(0, now, 0.05);
+
+    // Reset master filter to pass-through state
+    this.masterFilter.frequency.cancelScheduledValues(now);
+    this.masterFilter.type = 'lowpass';
+    this.masterFilter.frequency.setTargetAtTime(20000, now, 0.05);
+
     this.setPlaybackRate(this.playbackRate);
 
     if (this.noiseNode) {
@@ -230,10 +238,11 @@ export class Deck {
 
   private applyBabyScratch() {
     if (!this.source) return;
-    let direction = 1;
+    let high = true;
     this.fxTimer = setInterval(() => {
-      direction *= -1;
-      this.source?.playbackRate.setTargetAtTime(direction * 1.5, this.context.currentTime, 0.02);
+      high = !high;
+      // Alternate between fast-forward and near-stop to simulate scratch
+      this.source?.playbackRate.setTargetAtTime(high ? 1.8 : 0.15, this.context.currentTime, 0.02);
     }, 80);
   }
 

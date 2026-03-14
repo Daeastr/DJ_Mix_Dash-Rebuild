@@ -984,20 +984,19 @@ function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChang
           {fxPads.map(pad => (
             <button
               key={pad.id}
-              onMouseDown={() => {
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
                 setActiveFX(pad.id);
                 setLastUsedFX(pad.id);
                 onTriggerFX(pad.id, true);
               }}
-              onMouseUp={() => {
+              onPointerUp={() => {
                 setActiveFX(null);
                 onTriggerFX(pad.id, false);
               }}
-              onMouseLeave={() => {
-                if (activeFX === pad.id) {
-                  setActiveFX(null);
-                  onTriggerFX(pad.id, false);
-                }
+              onPointerCancel={() => {
+                setActiveFX(null);
+                onTriggerFX(pad.id, false);
               }}
               className="h-12 rounded-lg text-[0.55rem] font-bold flex items-center justify-center text-center p-1 leading-tight transition-all active:scale-95"
               style={{
