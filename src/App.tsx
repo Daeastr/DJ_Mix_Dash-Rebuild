@@ -27,10 +27,242 @@ const initialDeckState: DeckState = {
   volume: 1.0,
   playbackRate: 1.0,
   eq: { low: 0, mid: 0, high: 0 },
-  filter: 0, // 0 = off, -1 = LP, 1 = HP
+  filter: 0,
   currentTime: 0,
   startOffset: 0
 };
+
+type UserTier = 'free' | 'pro' | 'hybrid';
+
+const TIER_INTERVALS: Record<UserTier, number[]> = {
+  free:   [5, 10],
+  pro:    [5, 10, 15, 20, 25, 30],
+  hybrid: [5, 10, 15, 20, 25, 30, 45, 60],
+};
+
+function LandingPage({ onSelect }: { onSelect: (t: UserTier) => void }) {
+  const tiers = [
+    {
+      id: 'free' as UserTier,
+      label: 'FREE DJ',
+      tagline: 'Jump in. Feel the vibe.',
+      color: '#00e5ff',
+      shadow: '0 0 40px rgba(0,229,255,0.18)',
+      border: 'rgba(0,229,255,0.3)',
+      glow: 'rgba(0,229,255,0.07)',
+      icon: '🎧',
+      delay: '0s',
+      features: [
+        { text: 'Full DJ Mix console', ok: true },
+        { text: 'FX pads & scratching', ok: true },
+        { text: 'Crossfade & EQ controls', ok: true },
+        { text: 'Auto-drop up to 10 sec', ok: true },
+        { text: 'Full song playback', ok: false },
+        { text: 'Auto-drop 15–60 sec', ok: false },
+        { text: 'Track upload & library', ok: false },
+      ],
+      cta: 'START FREE',
+      ctaBg: 'rgba(0,229,255,0.12)',
+      ctaBorder: 'rgba(0,229,255,0.5)',
+      ctaColor: '#00e5ff',
+    },
+    {
+      id: 'pro' as UserTier,
+      label: 'PRO DJ',
+      tagline: 'Longer sets. More control.',
+      color: '#bf00ff',
+      shadow: '0 0 40px rgba(191,0,255,0.18)',
+      border: 'rgba(191,0,255,0.35)',
+      glow: 'rgba(191,0,255,0.07)',
+      icon: '🎛️',
+      badge: 'POPULAR',
+      delay: '0.1s',
+      features: [
+        { text: 'Full DJ Mix console', ok: true },
+        { text: 'FX pads & scratching', ok: true },
+        { text: 'Crossfade & EQ controls', ok: true },
+        { text: 'Auto-drop up to 30 sec', ok: true },
+        { text: 'Full song playback', ok: false },
+        { text: 'Auto-drop 45–60 sec', ok: false },
+        { text: 'Track upload & library', ok: false },
+      ],
+      cta: 'GO PRO',
+      ctaBg: 'rgba(191,0,255,0.12)',
+      ctaBorder: 'rgba(191,0,255,0.5)',
+      ctaColor: '#bf00ff',
+    },
+    {
+      id: 'hybrid' as UserTier,
+      label: 'HYBRID DJ',
+      tagline: 'Producer. DJ. Everything.',
+      color: '#00f5a0',
+      shadow: '0 0 50px rgba(0,245,160,0.22)',
+      border: 'rgba(0,245,160,0.4)',
+      glow: 'rgba(0,245,160,0.08)',
+      icon: '🎚️',
+      badge: 'FULL ACCESS',
+      delay: '0.2s',
+      features: [
+        { text: 'Full DJ Mix console', ok: true },
+        { text: 'FX pads & scratching', ok: true },
+        { text: 'Full song playback', ok: true },
+        { text: 'All auto-drop options (5–60 sec)', ok: true },
+        { text: 'Track upload & library', ok: true },
+        { text: 'Producer view access', ok: true },
+        { text: 'Unlimited mixing', ok: true },
+      ],
+      cta: 'GO HYBRID',
+      ctaBg: 'rgba(0,245,160,0.14)',
+      ctaBorder: 'rgba(0,245,160,0.55)',
+      ctaColor: '#00f5a0',
+    },
+  ];
+
+  return (
+    <div
+      className="relative flex flex-col items-center justify-start overflow-y-auto overflow-x-hidden"
+      style={{ minHeight: '100vh', background: 'radial-gradient(ellipse 120% 80% at 50% 10%, #0c1828 0%, #08090d 55%, #04060a 100%)' }}
+    >
+      {/* Grid bg overlay */}
+      <div className="pointer-events-none fixed inset-0" style={{
+        backgroundImage: 'linear-gradient(rgba(0,245,160,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(0,245,160,0.025) 1px, transparent 1px)',
+        backgroundSize: '44px 44px',
+      }} />
+
+      {/* Header */}
+      <div className="w-full flex items-center justify-between px-8 py-5 shrink-0" style={{ borderBottom: '1px solid rgba(30,33,48,0.8)' }}>
+        <div className="font-bebas text-3xl tracking-[4px]" style={{ color: '#00f5a0', textShadow: '0 0 24px rgba(0,245,160,0.45)' }}>
+          DJ MIX<span style={{ color: '#e2e8f0' }}> DASH</span>
+        </div>
+        <div className="font-mono text-[0.65rem] tracking-widest" style={{ color: '#4a5568' }}>SELECT YOUR EXPERIENCE</div>
+      </div>
+
+      {/* Hero section */}
+      <div className="flex flex-col items-center pt-10 pb-4 px-6 animate-landing-in">
+        <div className="font-bebas text-center mb-3" style={{ fontSize: 'clamp(2.2rem,6vw,4rem)', letterSpacing: '6px', lineHeight: 1 }}>
+          <span style={{ color: '#e2e8f0' }}>WHO ARE</span>{' '}
+          <span style={{ color: '#00f5a0', textShadow: '0 0 30px rgba(0,245,160,0.5)' }}>YOU</span>
+          <span style={{ color: '#e2e8f0' }}>?</span>
+        </div>
+        <p className="font-mono text-center text-sm mb-10" style={{ color: '#4a5568', letterSpacing: '2px' }}>
+          CHOOSE YOUR TIER — START MIXING
+        </p>
+
+        {/* Vinyl + EQ visualizer */}
+        <div className="flex items-center gap-12 mb-12">
+          {/* Left EQ */}
+          <div className="flex items-end gap-0.75" style={{ height: 64 }}>
+            {['eq-bar-1','eq-bar-2','eq-bar-3','eq-bar-4'].map((cls, i) => (
+              <div key={i} className={`${cls} w-1.25 rounded-t-sm`} style={{ background: `hsl(${160 + i*20},100%,60%)`, boxShadow: `0 0 6px hsl(${160+i*20},100%,60%)` }} />
+            ))}
+          </div>
+
+          {/* Vinyl record */}
+          <div className="relative" style={{ width: 130, height: 130 }}>
+            <div className="animate-vinyl-spin absolute inset-0 rounded-full" style={{
+              background: 'conic-gradient(from 0deg, #0a0a0e 0%, #161820 8%, #0a0a0e 16%, #161820 24%, #0a0a0e 32%, #161820 40%, #0a0a0e 48%, #161820 56%, #0a0a0e 64%, #161820 72%, #0a0a0e 80%, #161820 88%, #0a0a0e 96%, #161820 100%)',
+              boxShadow: '0 0 0 2px #1e2130, 0 0 30px rgba(0,245,160,0.12), inset 0 0 20px rgba(0,0,0,0.6)',
+            }} />
+            <div className="animate-vinyl-spin absolute rounded-full" style={{
+              inset: '18%', background: '#1a1030',
+              boxShadow: '0 0 0 1px #2a2040',
+            }} />
+            <div className="absolute rounded-full" style={{
+              inset: '40%',
+              background: 'radial-gradient(circle, #00f5a0 0%, #00c87a 60%, #007a4a 100%)',
+              boxShadow: '0 0 12px rgba(0,245,160,0.6)',
+              zIndex: 10,
+            }} />
+            {/* Tonearm */}
+            <div className="absolute" style={{
+              top: '-6px', right: '-22px', width: 2, height: 56,
+              background: 'linear-gradient(to bottom, #aaa, #555)',
+              borderRadius: 2,
+              transformOrigin: 'top center',
+              transform: 'rotate(22deg)',
+              boxShadow: '0 0 4px rgba(255,255,255,0.15)',
+            }} />
+          </div>
+
+          {/* Right EQ */}
+          <div className="flex items-end gap-0.75" style={{ height: 64 }}>
+            {['eq-bar-5','eq-bar-6','eq-bar-7','eq-bar-8'].map((cls, i) => (
+              <div key={i} className={`${cls} w-1.25 rounded-t-sm`} style={{ background: `hsl(${280 + i*20},100%,65%)`, boxShadow: `0 0 6px hsl(${280+i*20},100%,65%)` }} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Tier Cards */}
+      <div className="w-full max-w-5xl px-6 pb-16 grid grid-cols-1 md:grid-cols-3 gap-6 animate-landing-in" style={{ animationDelay: '0.15s' }}>
+        {tiers.map((tier) => (
+          <div
+            key={tier.id}
+            className="relative flex flex-col rounded-2xl overflow-hidden cursor-pointer group transition-all duration-300 animate-landing-in"
+            style={{
+              background: `linear-gradient(160deg, ${tier.glow} 0%, rgba(8,9,13,0.95) 100%)`,
+              border: `1px solid ${tier.border}`,
+              boxShadow: tier.shadow,
+              animationDelay: tier.delay,
+            }}
+            onClick={() => onSelect(tier.id)}
+          >
+            {/* Badge */}
+            {tier.badge && (
+              <div className="absolute top-3 right-3 font-mono text-[0.55rem] font-bold tracking-widest px-2 py-0.5 rounded-full"
+                style={{ background: tier.glow, border: `1px solid ${tier.border}`, color: tier.color }}>
+                {tier.badge}
+              </div>
+            )}
+
+            {/* Top accent line */}
+            <div className="w-full h-0.5 shrink-0" style={{ background: `linear-gradient(90deg, transparent, ${tier.color}, transparent)` }} />
+
+            <div className="flex flex-col flex-1 p-6">
+              <div className="text-3xl mb-3">{tier.icon}</div>
+              <div className="font-bebas text-2xl tracking-[3px] mb-1" style={{ color: tier.color, textShadow: `0 0 16px ${tier.color}66` }}>
+                {tier.label}
+              </div>
+              <div className="font-mono text-[0.68rem] mb-5" style={{ color: '#4a5568', letterSpacing: '0.5px' }}>{tier.tagline}</div>
+
+              <ul className="flex flex-col gap-2 flex-1 mb-6">
+                {tier.features.map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 font-mono text-[0.72rem]"
+                    style={{ color: f.ok ? '#e2e8f0' : '#2a3040' }}>
+                    <span className="shrink-0 mt-0.5" style={{ color: f.ok ? tier.color : '#1e2130' }}>
+                      {f.ok ? '✓' : '✗'}
+                    </span>
+                    {f.text}
+                  </li>
+                ))}
+              </ul>
+
+              <button
+                className="w-full py-3 rounded-xl font-bebas tracking-[3px] text-lg transition-all duration-200 group-hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: tier.ctaBg,
+                  border: `1px solid ${tier.ctaBorder}`,
+                  color: tier.ctaColor,
+                  boxShadow: `0 0 0 0 ${tier.ctaColor}40`,
+                }}
+                onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 0 20px ${tier.ctaColor}40`)}
+                onMouseLeave={e => (e.currentTarget.style.boxShadow = `0 0 0 0 ${tier.ctaColor}40`)}
+                onClick={(e) => { e.stopPropagation(); onSelect(tier.id); }}
+              >
+                {tier.cta}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Footer note */}
+      <div className="pb-8 font-mono text-[0.6rem] tracking-widest animate-landing-in" style={{ color: '#2a3040', animationDelay: '0.3s' }}>
+        ALL TIERS USE THE SAME APP — NO ACCOUNT REQUIRED
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -51,7 +283,8 @@ export default function App() {
   const [autoDropOrder, setAutoDropOrder] = useState<'chronological' | 'random'>('chronological');
   const [fxIntensity, setFxIntensity] = useState(0.5);
   const [activeDeck, setActiveDeck] = useState<'A' | 'B'>('A');
-  const [viewMode, setViewMode] = useState<'producer' | 'dj'>('producer');
+  const [userTier, setUserTier] = useState<UserTier | null>(null);
+  const [viewMode, setViewMode] = useState<'producer' | 'dj'>('dj');
   const [sortBy, setSortBy] = useState<'bpm' | 'genre' | 'producer' | 'newest' | 'oldest'>('bpm');
   const [filterGenre, setFilterGenre] = useState('all');
   const [filterProducer, setFilterProducer] = useState('all');
@@ -621,6 +854,10 @@ export default function App() {
     }
   }
 
+  if (userTier === null) return <LandingPage onSelect={(t) => { setUserTier(t); setViewMode(t === 'hybrid' ? 'producer' : 'dj'); }} />;
+
+  const tierIntervals = TIER_INTERVALS[userTier];
+
   return (
     <div className="flex flex-col h-screen bg-bg text-text font-sans selection:bg-accent/30 overflow-hidden">
       {/* Header */}
@@ -633,14 +870,16 @@ export default function App() {
           <div className="stat-pill">MIX QUEUE <span className="val">{mixQueue.length}</span></div>
           {/* View Mode Toggle */}
           <div className="flex bg-surface border border-border rounded-xl p-1 gap-0.5 ml-2">
-            <button
-              onClick={() => setViewMode('producer')}
-              className={`px-4 py-1.5 rounded-lg text-[0.7rem] font-bold tracking-widest transition-all flex items-center gap-1.5 ${
-                viewMode === 'producer' ? 'bg-accent text-black shadow-lg' : 'text-muted hover:text-text'
-              }`}
-            >
-              <Mic2 className="w-3 h-3" /> PRODUCER
-            </button>
+            {userTier === 'hybrid' && (
+              <button
+                onClick={() => setViewMode('producer')}
+                className={`px-4 py-1.5 rounded-lg text-[0.7rem] font-bold tracking-widest transition-all flex items-center gap-1.5 ${
+                  viewMode === 'producer' ? 'bg-accent text-black shadow-lg' : 'text-muted hover:text-text'
+                }`}
+              >
+                <Mic2 className="w-3 h-3" /> PRODUCER
+              </button>
+            )}
             <button
               onClick={() => setViewMode('dj')}
               className={`px-4 py-1.5 rounded-lg text-[0.7rem] font-bold tracking-widest transition-all flex items-center gap-1.5 ${
@@ -650,6 +889,19 @@ export default function App() {
               <Headphones className="w-3 h-3" /> DJ MIX
             </button>
           </div>
+          {/* Tier badge + switch */}
+          <button
+            onClick={() => setUserTier(null)}
+            className="ml-2 px-3 py-1.5 rounded-lg text-[0.6rem] font-bold tracking-widest border transition-all hover:opacity-80"
+            style={{
+              borderColor: userTier === 'hybrid' ? 'rgba(0,245,160,0.4)' : userTier === 'pro' ? 'rgba(191,0,255,0.4)' : 'rgba(0,229,255,0.4)',
+              color: userTier === 'hybrid' ? '#00f5a0' : userTier === 'pro' ? '#bf00ff' : '#00e5ff',
+              background: userTier === 'hybrid' ? 'rgba(0,245,160,0.07)' : userTier === 'pro' ? 'rgba(191,0,255,0.07)' : 'rgba(0,229,255,0.07)',
+            }}
+            title="Switch tier"
+          >
+            {userTier === 'hybrid' ? 'HYBRID DJ' : userTier === 'pro' ? 'PRO DJ' : 'FREE DJ'}
+          </button>
           <div className="flex items-center gap-3 ml-4">
             <Volume2 className="w-4 h-4 text-muted" />
             <input 
@@ -725,12 +977,14 @@ export default function App() {
           {/* Global Progress & Controls */}
           <div className="px-6 pt-6 flex flex-col items-center bg-surface2/30">
             <div className="w-full max-w-4xl flex items-center gap-4">
-              <button 
-                onClick={playFullSong}
-                className="px-4 py-2 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 rounded-xl text-[0.75rem] font-bold flex items-center gap-2 transition-all shrink-0 shadow-lg shadow-accent/5"
-              >
-                <Play className="w-3.5 h-3.5" /> PLAY FULL SONG
-              </button>
+              {userTier === 'hybrid' && (
+                <button 
+                  onClick={playFullSong}
+                  className="px-4 py-2 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 rounded-xl text-[0.75rem] font-bold flex items-center gap-2 transition-all shrink-0 shadow-lg shadow-accent/5"
+                >
+                  <Play className="w-3.5 h-3.5" /> PLAY FULL SONG
+                </button>
+              )}
               
               <div className="flex-1 h-12 bg-bg rounded-xl border border-border relative overflow-hidden group cursor-pointer shadow-inner"
                    onClick={(e) => {
@@ -851,7 +1105,7 @@ export default function App() {
                       onChange={(e) => setAutoDropInterval(Number(e.target.value))}
                       className="w-full bg-bg border border-border rounded-lg py-1 px-2 text-[0.7rem] font-mono text-center text-accent outline-none"
                     >
-                      {[5, 10, 15, 20, 25, 30, 45, 60].map(sec => (
+                      {tierIntervals.map(sec => (
                         <option key={sec} value={sec}>{autoDropMode === 'quick' ? `${sec} SEC DROP` : `${sec} SEC BLEND`}</option>
                       ))}
                     </select>
@@ -1006,6 +1260,8 @@ export default function App() {
           onAddToMix={addToMix}
           setDecks={setDecks}
           startAutoMix={startAutoMix}
+          userTier={userTier}
+          tierIntervals={tierIntervals}
         />
       )}
 
@@ -1032,7 +1288,7 @@ function DJMixView({
   uniqueGenres, uniqueProducers, sortBy, setSortBy, filterGenre, setFilterGenre,
   filterProducer, setFilterProducer, onTogglePlay, onEQChange, onFilterChange,
   onTempoChange, onDropTrack, onRandomizeStart, onTriggerFX, onPlayFullSong,
-  onAddToMix, setDecks, startAutoMix,
+  onAddToMix, setDecks, startAutoMix, userTier, tierIntervals,
 }: {
   decks: { A: DeckState; B: DeckState };
   tracks: Track[];
@@ -1073,6 +1329,8 @@ function DJMixView({
   onAddToMix: (id: string) => void;
   setDecks: React.Dispatch<React.SetStateAction<{ A: DeckState; B: DeckState }>>;
   startAutoMix: () => void;
+  userTier: UserTier;
+  tierIntervals: number[];
 }) {
   return (
     <div className="flex-1 overflow-hidden grid grid-cols-[260px_1fr]">
@@ -1162,12 +1420,14 @@ function DJMixView({
         {/* Global Progress & Controls */}
         <div className="px-6 pt-6 flex flex-col items-center bg-surface2/30 shrink-0">
           <div className="w-full flex items-center gap-4">
-          <button
-            onClick={onPlayFullSong}
-            className="px-4 py-2 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 rounded-xl text-[0.75rem] font-bold flex items-center gap-2 transition-all shrink-0 shadow-lg shadow-accent/5"
-          >
-            <Play className="w-3.5 h-3.5" /> PLAY FULL SONG
-          </button>
+          {userTier === 'hybrid' && (
+            <button
+              onClick={onPlayFullSong}
+              className="px-4 py-2 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 rounded-xl text-[0.75rem] font-bold flex items-center gap-2 transition-all shrink-0 shadow-lg shadow-accent/5"
+            >
+              <Play className="w-3.5 h-3.5" /> PLAY FULL SONG
+            </button>
+          )}
           <div className="flex-1 h-12 bg-bg rounded-xl border border-border relative overflow-hidden group cursor-pointer shadow-inner"
                onClick={(e) => {
                  const rect = e.currentTarget.getBoundingClientRect();
@@ -1246,7 +1506,7 @@ function DJMixView({
                   <button onClick={() => setAutoDropMode('end')} className={`flex-1 py-1 rounded text-[0.6rem] font-bold transition-colors ${autoDropMode === 'end' ? 'bg-[#ff6b00]/20 text-[#ff6b00] border border-[#ff6b00]/60' : 'text-[#ff6b00]/50 hover:text-[#ff6b00]'}`}>FULL TRACK</button>
                 </div>
                 <select value={autoDropInterval} onChange={(e) => setAutoDropInterval(Number(e.target.value))} className="w-full bg-bg border border-border rounded-lg py-1 px-2 text-[0.7rem] font-mono text-center text-accent outline-none">
-                  {[5, 10, 15, 20, 25, 30, 45, 60].map(sec => (
+                  {tierIntervals.map(sec => (
                     <option key={sec} value={sec}>{autoDropMode === 'quick' ? `${sec} SEC DROP` : `${sec} SEC BLEND`}</option>
                   ))}
                 </select>
