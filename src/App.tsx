@@ -12,7 +12,9 @@ import {
   Timer,
   Shuffle,
   ListOrdered,
-  Dices
+  Dices,
+  Headphones,
+  Mic2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Track, DeckState } from './types';
@@ -49,6 +51,10 @@ export default function App() {
   const [autoDropOrder, setAutoDropOrder] = useState<'chronological' | 'random'>('chronological');
   const [fxIntensity, setFxIntensity] = useState(0.5);
   const [activeDeck, setActiveDeck] = useState<'A' | 'B'>('A');
+  const [viewMode, setViewMode] = useState<'producer' | 'dj'>('producer');
+  const [sortBy, setSortBy] = useState<'bpm' | 'genre' | 'producer' | 'newest' | 'oldest'>('bpm');
+  const [filterGenre, setFilterGenre] = useState('all');
+  const [filterProducer, setFilterProducer] = useState('all');
 
   const engineRef = useRef<DJEngine | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -117,6 +123,9 @@ export default function App() {
       const id = Math.random().toString(36).substring(7);
       const url = URL.createObjectURL(file);
       
+      const producer = file.name.includes(' - ')
+        ? file.name.split(' - ')[0].trim()
+        : 'Unknown';
       const tempTrack: Track = {
         id,
         name: file.name.replace(/\.[^/.]+$/, ""),
@@ -125,6 +134,8 @@ export default function App() {
         duration: 0,
         bpm: 'Analyzing...',
         genre: 'Unknown',
+        producer,
+        addedAt: Date.now(),
         color: `hsl(${Math.random() * 360}, 70%, 60%)`
       };
 
@@ -508,10 +519,57 @@ export default function App() {
     setMixQueue(prev => prev.includes(id) ? prev.filter(tid => tid !== id) : [...prev, id]);
   };
 
+  const filteredSortedTracks = useMemo(() => {
+    let result = [...tracks];
+    if (filterGenre !== 'all') result = result.filter(t => t.genre === filterGenre);
+    if (filterProducer !== 'all') result = result.filter(t => t.producer === filterProducer);
+    switch (sortBy) {
+      case 'bpm':
+        result.sort((a, b) => {
+          if (a.bpm === 'Analyzing...') return 1;
+          if (b.bpm === 'Analyzing...') return -1;
+          return (a.bpm as number) - (b.bpm as number);
+        });
+        break;
+      case 'genre': result.sort((a, b) => a.genre.localeCompare(b.genre)); break;
+      case 'producer': result.sort((a, b) => a.producer.localeCompare(b.producer)); break;
+      case 'newest': result.sort((a, b) => b.addedAt - a.addedAt); break;
+      case 'oldest': result.sort((a, b) => a.addedAt - b.addedAt); break;
+    }
+    return result;
+  }, [tracks, filterGenre, filterProducer, sortBy]);
+
+  const uniqueGenres = useMemo(() =>
+    ['all', ...Array.from(new Set(tracks.map(t => t.genre)))], [tracks]);
+
+  const uniqueProducers = useMemo(() =>
+    ['all', ...Array.from(new Set(tracks.map(t => t.producer)))], [tracks]);
+
   const groupedTracks = useMemo(() => {
+    if (sortBy === 'genre') {
+      const groups: Record<string, Track[]> = {};
+      filteredSortedTracks.forEach(track => {
+        if (!groups[track.genre]) groups[track.genre] = [];
+        groups[track.genre].push(track);
+      });
+      return Object.keys(groups).sort().map(key => ({ label: key, tracks: groups[key] }));
+    }
+    if (sortBy === 'producer') {
+      const groups: Record<string, Track[]> = {};
+      filteredSortedTracks.forEach(track => {
+        if (!groups[track.producer]) groups[track.producer] = [];
+        groups[track.producer].push(track);
+      });
+      return Object.keys(groups).sort().map(key => ({ label: key, tracks: groups[key] }));
+    }
+    if (sortBy === 'newest' || sortBy === 'oldest') {
+      return filteredSortedTracks.length > 0
+        ? [{ label: sortBy === 'newest' ? 'NEWEST FIRST' : 'OLDEST FIRST', tracks: filteredSortedTracks }]
+        : [];
+    }
+    // Default: BPM range grouping
     const groups: Record<string, Track[]> = {};
-    
-    tracks.forEach(track => {
+    filteredSortedTracks.forEach(track => {
       if (track.bpm === 'Analyzing...') {
         if (!groups['Analyzing']) groups['Analyzing'] = [];
         groups['Analyzing'].push(track);
@@ -520,12 +578,10 @@ export default function App() {
         const lowerBound = Math.floor(bpm / 5) * 5;
         const upperBound = lowerBound + 4;
         const rangeLabel = `${lowerBound} - ${upperBound} BPM`;
-        
         if (!groups[rangeLabel]) groups[rangeLabel] = [];
         groups[rangeLabel].push(track);
       }
     });
-    
     const sortedKeys = Object.keys(groups).sort((a, b) => {
       if (a === 'Analyzing') return 1;
       if (b === 'Analyzing') return -1;
@@ -533,12 +589,8 @@ export default function App() {
       const bpmB = parseInt(b.split(' ')[0]);
       return bpmA - bpmB;
     });
-    
-    return sortedKeys.map(key => ({
-      label: key,
-      tracks: groups[key]
-    }));
-  }, [tracks]);
+    return sortedKeys.map(key => ({ label: key, tracks: groups[key] }));
+  }, [filteredSortedTracks, sortBy]);
 
   // Calculate countdown
   let countdownText = '';
@@ -579,6 +631,25 @@ export default function App() {
         <div className="flex gap-6 items-center">
           <div className="stat-pill">TRACKS <span className="val">{tracks.length}</span></div>
           <div className="stat-pill">MIX QUEUE <span className="val">{mixQueue.length}</span></div>
+          {/* View Mode Toggle */}
+          <div className="flex bg-surface border border-border rounded-xl p-1 gap-0.5 ml-2">
+            <button
+              onClick={() => setViewMode('producer')}
+              className={`px-4 py-1.5 rounded-lg text-[0.7rem] font-bold tracking-widest transition-all flex items-center gap-1.5 ${
+                viewMode === 'producer' ? 'bg-accent text-black shadow-lg' : 'text-muted hover:text-text'
+              }`}
+            >
+              <Mic2 className="w-3 h-3" /> PRODUCER
+            </button>
+            <button
+              onClick={() => setViewMode('dj')}
+              className={`px-4 py-1.5 rounded-lg text-[0.7rem] font-bold tracking-widest transition-all flex items-center gap-1.5 ${
+                viewMode === 'dj' ? 'bg-[#00e5ff] text-black shadow-lg' : 'text-muted hover:text-text'
+              }`}
+            >
+              <Headphones className="w-3 h-3" /> DJ MIX
+            </button>
+          </div>
           <div className="flex items-center gap-3 ml-4">
             <Volume2 className="w-4 h-4 text-muted" />
             <input 
@@ -590,6 +661,7 @@ export default function App() {
         </div>
       </header>
 
+      {viewMode === 'producer' ? (
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_1fr] overflow-hidden">
         {/* Sidebar */}
         <aside className="border-r border-border bg-surface flex flex-col overflow-hidden">
@@ -602,12 +674,27 @@ export default function App() {
 
           <input type="file" ref={fileInputRef} className="hidden" multiple accept="audio/*" onChange={handleFileUpload} />
 
+          {/* Filter Controls */}
+          <div className="px-3 pt-3 pb-2 border-b border-border flex flex-col gap-2 shrink-0">
+            <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.65rem] font-mono text-accent outline-none">
+              <option value="bpm">Sort: BPM</option>
+              <option value="genre">Sort: Genre / Category</option>
+              <option value="producer">Sort: Producer / Artist</option>
+              <option value="newest">Sort: Newest Added</option>
+              <option value="oldest">Sort: Oldest Added</option>
+            </select>
+            <div className="flex gap-1.5">
+              <select value={filterGenre} onChange={e => setFilterGenre(e.target.value)} className="flex-1 bg-bg border border-border rounded-lg py-1 px-1.5 text-[0.6rem] font-mono text-[#00e5ff] outline-none">
+                {uniqueGenres.map(g => <option key={g} value={g}>{g === 'all' ? 'All Genres' : g}</option>)}
+              </select>
+              <select value={filterProducer} onChange={e => setFilterProducer(e.target.value)} className="flex-1 bg-bg border border-border rounded-lg py-1 px-1.5 text-[0.6rem] font-mono text-[#ffe600] outline-none">
+                {uniqueProducers.map(p => <option key={p} value={p}>{p === 'all' ? 'All Artists' : p}</option>)}
+              </select>
+            </div>
+          </div>
+
           <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-            {[...tracks].sort((a, b) => {
-              if (a.bpm === 'Analyzing...') return 1;
-              if (b.bpm === 'Analyzing...') return -1;
-              return (a.bpm as number) - (b.bpm as number);
-            }).map(track => (
+            {filteredSortedTracks.map(track => (
               <div 
                 key={track.id}
                 draggable
@@ -825,6 +912,11 @@ export default function App() {
                       <Music className="w-12 h-12 mb-4" />
                       <p>Upload audio files to see your library</p>
                     </div>
+                  ) : groupedTracks.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">
+                      <Activity className="w-12 h-12 mb-4" />
+                      <p>No tracks match the current filters</p>
+                    </div>
                   ) : (
                     groupedTracks.map(group => (
                       <div key={group.label} className="space-y-3">
@@ -840,6 +932,7 @@ export default function App() {
                               <div className="flex-1 min-w-0">
                                 <div className="font-semibold truncate">{track.name}</div>
                                 <div className="text-xs text-muted font-mono mt-1">{track.bpm} BPM · {track.genre}</div>
+                                <div className="text-[0.6rem] text-[#ffe600]/60 font-mono mt-0.5 truncate">{track.producer}</div>
                               </div>
                               <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button onClick={() => loadToDeck(track.id, 'A')} className="px-3 py-1.5 rounded bg-bg border border-border text-[0.6rem] font-bold hover:text-accent hover:border-accent transition-colors">DECK A</button>
@@ -872,6 +965,49 @@ export default function App() {
           </div>
         </main>
       </div>
+      ) : (
+        <DJMixView
+          decks={decks}
+          tracks={tracks}
+          activeDeck={activeDeck}
+          activeDeckRef={activeDeckRef}
+          engineRef={engineRef}
+          crossfade={crossfade}
+          setCrossfade={setCrossfade}
+          fxIntensity={fxIntensity}
+          setFxIntensity={setFxIntensity}
+          isAutoDropEnabled={isAutoDropEnabled}
+          setIsAutoDropEnabled={setIsAutoDropEnabled}
+          autoDropMode={autoDropMode}
+          setAutoDropMode={setAutoDropMode}
+          autoDropInterval={autoDropInterval}
+          setAutoDropInterval={setAutoDropInterval}
+          autoDropOrder={autoDropOrder}
+          setAutoDropOrder={setAutoDropOrder}
+          countdownText={countdownText}
+          mixQueue={mixQueue}
+          filteredSortedTracks={filteredSortedTracks}
+          uniqueGenres={uniqueGenres}
+          uniqueProducers={uniqueProducers}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+          filterGenre={filterGenre}
+          setFilterGenre={setFilterGenre}
+          filterProducer={filterProducer}
+          setFilterProducer={setFilterProducer}
+          onTogglePlay={toggleDeckPlay}
+          onEQChange={(deck, band, val) => updateDeckEQ(deck, band, val)}
+          onFilterChange={(deck, val) => updateDeckFilter(deck, val)}
+          onTempoChange={(deck, val) => updateDeckTempo(deck, val)}
+          onDropTrack={(id, deck) => loadToDeck(id, deck)}
+          onRandomizeStart={randomizeStart}
+          onTriggerFX={(deck, fx, active) => triggerFX(deck, fx, active)}
+          onPlayFullSong={playFullSong}
+          onAddToMix={addToMix}
+          setDecks={setDecks}
+          startAutoMix={startAutoMix}
+        />
+      )}
 
       {/* Toast */}
       <AnimatePresence>
@@ -884,6 +1020,257 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function DJMixView({
+  decks, tracks, activeDeck, activeDeckRef, engineRef, crossfade, setCrossfade,
+  fxIntensity, setFxIntensity, isAutoDropEnabled, setIsAutoDropEnabled,
+  autoDropMode, setAutoDropMode, autoDropInterval, setAutoDropInterval,
+  autoDropOrder, setAutoDropOrder, countdownText, mixQueue, filteredSortedTracks,
+  uniqueGenres, uniqueProducers, sortBy, setSortBy, filterGenre, setFilterGenre,
+  filterProducer, setFilterProducer, onTogglePlay, onEQChange, onFilterChange,
+  onTempoChange, onDropTrack, onRandomizeStart, onTriggerFX, onPlayFullSong,
+  onAddToMix, setDecks, startAutoMix,
+}: {
+  decks: { A: DeckState; B: DeckState };
+  tracks: Track[];
+  activeDeck: 'A' | 'B';
+  activeDeckRef: React.MutableRefObject<'A' | 'B'>;
+  engineRef: React.MutableRefObject<DJEngine | null>;
+  crossfade: number;
+  setCrossfade: (v: number) => void;
+  fxIntensity: number;
+  setFxIntensity: (v: number) => void;
+  isAutoDropEnabled: boolean;
+  setIsAutoDropEnabled: (v: boolean) => void;
+  autoDropMode: 'quick' | 'end';
+  setAutoDropMode: (v: 'quick' | 'end') => void;
+  autoDropInterval: number;
+  setAutoDropInterval: (v: number) => void;
+  autoDropOrder: 'chronological' | 'random';
+  setAutoDropOrder: React.Dispatch<React.SetStateAction<'chronological' | 'random'>>;
+  countdownText: string;
+  mixQueue: string[];
+  filteredSortedTracks: Track[];
+  uniqueGenres: string[];
+  uniqueProducers: string[];
+  sortBy: string;
+  setSortBy: (v: any) => void;
+  filterGenre: string;
+  setFilterGenre: (v: string) => void;
+  filterProducer: string;
+  setFilterProducer: (v: string) => void;
+  onTogglePlay: (deck: 'A' | 'B') => void;
+  onEQChange: (deck: 'A' | 'B', band: 'low' | 'mid' | 'high', val: number) => void;
+  onFilterChange: (deck: 'A' | 'B', val: number) => void;
+  onTempoChange: (deck: 'A' | 'B', val: number) => void;
+  onDropTrack: (trackId: string, deck: 'A' | 'B') => void;
+  onRandomizeStart: (deck: 'A' | 'B') => void;
+  onTriggerFX: (deck: 'A' | 'B', fx: string, active: boolean) => void;
+  onPlayFullSong: () => void;
+  onAddToMix: (id: string) => void;
+  setDecks: React.Dispatch<React.SetStateAction<{ A: DeckState; B: DeckState }>>;
+  startAutoMix: () => void;
+}) {
+  return (
+    <div className="flex-1 overflow-hidden flex flex-col">
+      {/* Global Progress & Controls */}
+      <div className="px-6 pt-6 flex flex-col items-center bg-surface2/30 shrink-0">
+        <div className="w-full max-w-4xl flex items-center gap-4">
+          <button
+            onClick={onPlayFullSong}
+            className="px-4 py-2 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 rounded-xl text-[0.75rem] font-bold flex items-center gap-2 transition-all shrink-0 shadow-lg shadow-accent/5"
+          >
+            <Play className="w-3.5 h-3.5" /> PLAY FULL SONG
+          </button>
+          <div className="flex-1 h-12 bg-bg rounded-xl border border-border relative overflow-hidden group cursor-pointer shadow-inner"
+               onClick={(e) => {
+                 const rect = e.currentTarget.getBoundingClientRect();
+                 const x = e.clientX - rect.left;
+                 const pct = x / rect.width;
+                 const active = activeDeckRef.current;
+                 const deck = active === 'A' ? engineRef.current?.deckA : engineRef.current?.deckB;
+                 if (deck && deck.buffer) {
+                   const newTime = pct * deck.buffer.duration;
+                   deck.seek(newTime);
+                   setDecks(prev => ({ ...prev, [active]: { ...prev[active], currentTime: newTime, startOffset: newTime } }));
+                 }
+               }}>
+            <motion.div
+              className="absolute inset-y-0 left-0 bg-accent/10 border-r border-accent/40"
+              style={{ width: `${(decks[activeDeck].currentTime / (tracks.find(t => t.id === decks[activeDeck].trackId)?.audioBuffer?.duration || 1)) * 100}%` }}
+            />
+            <div className="absolute inset-0 flex items-center px-6 pointer-events-none overflow-hidden">
+              <div className="whitespace-nowrap animate-marquee font-mono text-[0.8rem] text-accent/60 tracking-wider">
+                {tracks.find(t => t.id === decks[activeDeck].trackId)?.name || 'NO TRACK PLAYING'} • 
+                {tracks.find(t => t.id === decks[activeDeck].trackId)?.name || 'NO TRACK PLAYING'} • 
+                {tracks.find(t => t.id === decks[activeDeck].trackId)?.name || 'NO TRACK PLAYING'} • 
+                {tracks.find(t => t.id === decks[activeDeck].trackId)?.name || 'NO TRACK PLAYING'}
+              </div>
+            </div>
+            <div className="absolute right-4 inset-y-0 flex items-center pointer-events-none text-[0.7rem] font-mono text-muted bg-bg/80 px-2 my-2 rounded-md">
+              {formatTime(decks[activeDeck].currentTime)} / {formatTime(tracks.find(t => t.id === decks[activeDeck].trackId)?.audioBuffer?.duration || 0)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Deck Area */}
+      <div className="p-6 grid grid-cols-[1fr_120px_1fr] gap-6 bg-surface2/30 border-b border-border shrink-0">
+        <DeckUI
+          deckKey="A"
+          state={decks.A}
+          track={tracks.find(t => t.id === decks.A.trackId)}
+          onTogglePlay={() => onTogglePlay('A')}
+          onEQChange={(band, val) => onEQChange('A', band, val)}
+          onFilterChange={(val) => onFilterChange('A', val)}
+          onTempoChange={(val) => onTempoChange('A', val)}
+          onDropTrack={(id) => onDropTrack(id, 'A')}
+          onRandomizeStart={() => onRandomizeStart('A')}
+          onTriggerFX={(fx, active) => onTriggerFX('A', fx, active)}
+        />
+
+        {/* Mixer Center */}
+        <div className="flex flex-col items-center justify-between py-4">
+          <div className="font-bebas text-xs tracking-widest text-muted">MIXER</div>
+          <div className="flex flex-col items-center gap-4 w-full">
+            <div className="flex flex-col items-center gap-1">
+              <input type="range" min="0" max="1" step="0.01" value={fxIntensity} onChange={(e) => setFxIntensity(parseFloat(e.target.value))} className="w-24 accent-accent" />
+              <div className="font-mono text-[0.5rem] text-muted uppercase tracking-tighter">FX INTENSITY</div>
+            </div>
+            <div className="h-24 w-2 bg-bg rounded-full relative overflow-hidden">
+              <motion.div animate={{ height: `${(crossfade + 1) * 50}%` }} className="absolute bottom-0 w-full bg-accent/50" />
+            </div>
+            <input type="range" min="-1" max="1" step="0.01" value={crossfade} onChange={(e) => setCrossfade(parseFloat(e.target.value))} className="w-32 accent-accent" />
+            <div className="font-mono text-[0.6rem] text-muted">CROSSFADE</div>
+          </div>
+          <div className="flex flex-col gap-3 w-full px-4">
+            <div className="flex items-center justify-between bg-bg rounded-lg p-1 border border-border">
+              <button onClick={() => setIsAutoDropEnabled(!isAutoDropEnabled)} className={`flex-1 py-1.5 rounded text-[0.65rem] font-bold flex items-center justify-center gap-1 transition-colors ${isAutoDropEnabled ? 'bg-accent text-black' : 'text-[#00e5ff] border border-[#00e5ff]/40 hover:bg-[#00e5ff]/10'}`}>
+                <Timer className="w-3 h-3" /> AUTO
+              </button>
+              <button onClick={() => setAutoDropOrder(prev => prev === 'chronological' ? 'random' : 'chronological')} className="flex-1 py-1.5 rounded text-[0.65rem] font-bold flex items-center justify-center gap-1 text-[#ffe600] border border-[#ffe600]/40 hover:bg-[#ffe600]/10 transition-colors" title={`Order: ${autoDropOrder}`}>
+                {autoDropOrder === 'chronological' ? <ListOrdered className="w-3 h-3" /> : <Shuffle className="w-3 h-3" />}
+              </button>
+            </div>
+            {isAutoDropEnabled && (
+              <div className="flex flex-col gap-2 w-full">
+                <div className="flex bg-bg border border-border rounded-lg p-1">
+                  <button onClick={() => setAutoDropMode('quick')} className={`flex-1 py-1 rounded text-[0.6rem] font-bold transition-colors ${autoDropMode === 'quick' ? 'bg-[#bf00ff]/20 text-[#bf00ff] border border-[#bf00ff]/60' : 'text-[#bf00ff]/50 hover:text-[#bf00ff]'}`}>QUICK MIX</button>
+                  <button onClick={() => setAutoDropMode('end')} className={`flex-1 py-1 rounded text-[0.6rem] font-bold transition-colors ${autoDropMode === 'end' ? 'bg-[#ff6b00]/20 text-[#ff6b00] border border-[#ff6b00]/60' : 'text-[#ff6b00]/50 hover:text-[#ff6b00]'}`}>FULL TRACK</button>
+                </div>
+                <select value={autoDropInterval} onChange={(e) => setAutoDropInterval(Number(e.target.value))} className="w-full bg-bg border border-border rounded-lg py-1 px-2 text-[0.7rem] font-mono text-center text-accent outline-none">
+                  {[5, 10, 15, 20, 25, 30, 45, 60].map(sec => (
+                    <option key={sec} value={sec}>{autoDropMode === 'quick' ? `${sec} SEC DROP` : `${sec} SEC BLEND`}</option>
+                  ))}
+                </select>
+                <button onClick={startAutoMix} className="w-full mt-1 bg-accent hover:bg-accent/80 text-black py-1.5 rounded-lg text-[0.7rem] font-bold tracking-wider transition-colors">START MIX</button>
+                {isAutoDropEnabled && (
+                  <div className="w-full mt-1 bg-surface2 border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-center text-accent animate-pulse">{countdownText}</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DeckUI
+          deckKey="B"
+          state={decks.B}
+          track={tracks.find(t => t.id === decks.B.trackId)}
+          onTogglePlay={() => onTogglePlay('B')}
+          onEQChange={(band, val) => onEQChange('B', band, val)}
+          onFilterChange={(val) => onFilterChange('B', val)}
+          onTempoChange={(val) => onTempoChange('B', val)}
+          onDropTrack={(id) => onDropTrack(id, 'B')}
+          onRandomizeStart={() => onRandomizeStart('B')}
+          onTriggerFX={(fx, active) => onTriggerFX('B', fx, active)}
+        />
+      </div>
+
+      {/* DJ Browser: Filter Sidebar + Track Grid */}
+      <div className="flex-1 overflow-hidden grid grid-cols-[220px_1fr]">
+        {/* Filter Sidebar */}
+        <aside className="border-r border-border bg-surface flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-border">
+            <div className="font-bebas text-lg tracking-[3px] text-[#00e5ff] drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]">BROWSE</div>
+            <div className="text-[0.65rem] text-muted font-mono mt-0.5">{filteredSortedTracks.length} / {tracks.length} TRACKS</div>
+          </div>
+          <div className="p-3 flex flex-col gap-3 flex-1 overflow-y-auto custom-scrollbar">
+            <div>
+              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Sort By</label>
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-accent outline-none">
+                <option value="bpm">BPM</option>
+                <option value="genre">Genre / Category</option>
+                <option value="producer">Producer / Artist</option>
+                <option value="newest">Newest Added</option>
+                <option value="oldest">Oldest Added</option>
+              </select>
+            </div>
+            <div>
+              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Category / Genre</label>
+              <select value={filterGenre} onChange={e => setFilterGenre(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-[#00e5ff] outline-none">
+                {uniqueGenres.map(g => <option key={g} value={g}>{g === 'all' ? 'All Genres' : g}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Producer / Artist</label>
+              <select value={filterProducer} onChange={e => setFilterProducer(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-[#ffe600] outline-none">
+                {uniqueProducers.map(p => <option key={p} value={p}>{p === 'all' ? 'All Producers' : p}</option>)}
+              </select>
+            </div>
+            <button
+              onClick={() => { setSortBy('bpm'); setFilterGenre('all'); setFilterProducer('all'); }}
+              className="w-full py-1.5 rounded-lg text-[0.6rem] font-bold tracking-widest border border-[#00e5ff]/30 text-[#00e5ff]/60 hover:text-[#00e5ff] hover:border-[#00e5ff]/60 transition-colors"
+            >
+              RESET FILTERS
+            </button>
+          </div>
+        </aside>
+
+        {/* Track Grid */}
+        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+          {tracks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">
+              <Music className="w-12 h-12 mb-4" />
+              <p className="text-sm">No tracks in the library yet</p>
+              <p className="text-xs mt-1">Switch to Producer view to upload tracks</p>
+            </div>
+          ) : filteredSortedTracks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">
+              <Activity className="w-12 h-12 mb-4" />
+              <p className="text-sm">No tracks match your filters</p>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center gap-3 mb-6">
+                <span className="font-bebas text-lg tracking-[2px] text-[#00e5ff]/60">{filteredSortedTracks.length} TRACK{filteredSortedTracks.length !== 1 ? 'S' : ''}</span>
+                {(filterGenre !== 'all' || filterProducer !== 'all') && (
+                  <span className="text-[0.6rem] font-mono text-muted bg-surface border border-border rounded-full px-2 py-0.5">FILTERED</span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filteredSortedTracks.map(track => (
+                  <div key={track.id} className="bg-surface border border-border rounded-xl p-4 flex items-center gap-4 group hover:border-[#00e5ff]/30 transition-colors">
+                    <div className="w-12 h-12 rounded-lg flex items-center justify-center text-2xl shadow-md shrink-0" style={{ backgroundColor: track.color }}>🎵</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold truncate text-sm">{track.name}</div>
+                      <div className="text-xs text-muted font-mono mt-0.5">{track.bpm} BPM · {track.genre}</div>
+                      <div className="text-[0.6rem] text-[#ffe600]/60 font-mono mt-0.5 truncate">{track.producer}</div>
+                    </div>
+                    <div className="flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button onClick={() => onDropTrack(track.id, 'A')} className="px-2.5 py-1 rounded bg-bg border border-border text-[0.6rem] font-bold hover:text-accent hover:border-accent transition-colors">DECK A</button>
+                      <button onClick={() => onDropTrack(track.id, 'B')} className="px-2.5 py-1 rounded bg-bg border border-border text-[0.6rem] font-bold hover:text-accent2 hover:border-accent2 transition-colors">DECK B</button>
+                      <button onClick={() => onAddToMix(track.id)} className={`px-2.5 py-1 rounded bg-bg border border-border text-[0.6rem] font-bold transition-colors ${mixQueue.includes(track.id) ? 'text-accent3 border-accent3/50' : 'text-muted hover:text-accent3'}`}>QUEUE</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

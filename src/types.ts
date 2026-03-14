@@ -8,6 +8,8 @@ export interface Track {
   duration: number;
   bpm: number | 'Analyzing...';
   genre: Genre;
+  producer: string;
+  addedAt: number;
   color: string;
   audioBuffer?: AudioBuffer;
 }
