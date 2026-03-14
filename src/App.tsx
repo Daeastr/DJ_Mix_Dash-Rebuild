@@ -45,7 +45,12 @@ const initialDeckState: DeckState = {
 };
 
 export default function App() {
-  const { user, profile, loading: authLoading, signOut } = useAuth();
+  const { user, profile, loading: authLoading, signOut, firebaseReady } = useAuth();
+
+  // If Firebase isn't configured, skip auth and run the app directly
+  if (!firebaseReady) {
+    return <AppMain profile={null} signOut={async () => {}} />;
+  }
 
   // Auth gate — show auth page if not signed in
   if (authLoading) {
@@ -62,8 +67,8 @@ export default function App() {
   return <AppMain profile={profile} signOut={signOut} />;
 }
 
-function AppMain({ profile, signOut }: { profile: import('./types').UserProfile; signOut: () => Promise<void> }) {
-  const userTier = profile.tier;
+function AppMain({ profile, signOut }: { profile: import('./types').UserProfile | null; signOut: () => Promise<void> }) {
+  const userTier = profile?.tier ?? 'hybrid';
   const tierIntervals = TIER_INTERVALS[userTier];
 
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -728,6 +733,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile;
             />
           </div>
           {/* User Info */}
+          {profile && (
           <div className="flex items-center gap-2 ml-2 pl-4 border-l border-border">
             <div className="flex flex-col items-end">
               <span className="text-[0.7rem] font-bold text-text tracking-wider">{profile.djName}</span>
@@ -746,6 +752,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile;
               <LogOut className="w-4 h-4" />
             </button>
           </div>
+          )}
         </div>
       </header>
 

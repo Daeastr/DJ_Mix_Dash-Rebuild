@@ -19,6 +19,7 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
   const isHybrid = profile?.tier === 'hybrid';
 
   const fetchSharedTracks = useCallback(async () => {
+    if (!db) { setLoading(false); return; }
     try {
       const q = query(collection(db, 'sharedTracks'), orderBy('uploadedAt', 'desc'));
       const snapshot = await getDocs(q);
@@ -34,7 +35,7 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !profile) return;
+    if (!file || !profile || !storage || !db) return;
     if (!file.type.startsWith('audio/')) {
       setError('Only audio files are allowed');
       return;
@@ -95,7 +96,7 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
   };
 
   const handleDelete = async (track: SharedTrack) => {
-    if (track.uploadedBy !== profile?.uid) return;
+    if (track.uploadedBy !== profile?.uid || !storage || !db) return;
     try {
       // Extract path from URL to delete from storage
       const urlObj = new URL(track.storageUrl);
@@ -112,6 +113,7 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
   };
 
   const handleDownload = async (track: SharedTrack) => {
+    if (!db) return;
     try {
       await updateDoc(doc(db, 'sharedTracks', track.id), { downloadCount: increment(1) });
       onLoadTrack(track.storageUrl, track.name);
