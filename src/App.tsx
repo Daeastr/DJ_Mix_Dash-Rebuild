@@ -730,13 +730,13 @@ export default function App() {
                 <div className="flex items-center justify-between bg-bg rounded-lg p-1 border border-border">
                   <button 
                     onClick={() => setIsAutoDropEnabled(!isAutoDropEnabled)}
-                    className={`flex-1 py-1.5 rounded text-[0.65rem] font-bold flex items-center justify-center gap-1 transition-colors ${isAutoDropEnabled ? 'bg-accent text-black' : 'text-muted hover:text-text'}`}
+                    className={`flex-1 py-1.5 rounded text-[0.65rem] font-bold flex items-center justify-center gap-1 transition-colors ${isAutoDropEnabled ? 'bg-accent text-black' : 'text-[#00e5ff] border border-[#00e5ff]/40 hover:bg-[#00e5ff]/10'}`}
                   >
                     <Timer className="w-3 h-3" /> AUTO
                   </button>
                   <button 
                     onClick={() => setAutoDropOrder(prev => prev === 'chronological' ? 'random' : 'chronological')}
-                    className="flex-1 py-1.5 rounded text-[0.65rem] font-bold flex items-center justify-center gap-1 text-muted hover:text-text transition-colors"
+                    className="flex-1 py-1.5 rounded text-[0.65rem] font-bold flex items-center justify-center gap-1 text-[#ffe600] border border-[#ffe600]/40 hover:bg-[#ffe600]/10 transition-colors"
                     title={`Order: ${autoDropOrder}`}
                   >
                     {autoDropOrder === 'chronological' ? <ListOrdered className="w-3 h-3" /> : <Shuffle className="w-3 h-3" />}
@@ -748,13 +748,13 @@ export default function App() {
                     <div className="flex bg-bg border border-border rounded-lg p-1">
                       <button 
                         onClick={() => setAutoDropMode('quick')}
-                        className={`flex-1 py-1 rounded text-[0.6rem] font-bold transition-colors ${autoDropMode === 'quick' ? 'bg-surface2 text-text' : 'text-muted hover:text-text'}`}
+                        className={`flex-1 py-1 rounded text-[0.6rem] font-bold transition-colors ${autoDropMode === 'quick' ? 'bg-[#bf00ff]/20 text-[#bf00ff] border border-[#bf00ff]/60' : 'text-[#bf00ff]/50 hover:text-[#bf00ff]'}`}
                       >
                         QUICK MIX
                       </button>
                       <button 
                         onClick={() => setAutoDropMode('end')}
-                        className={`flex-1 py-1 rounded text-[0.6rem] font-bold transition-colors ${autoDropMode === 'end' ? 'bg-surface2 text-text' : 'text-muted hover:text-text'}`}
+                        className={`flex-1 py-1 rounded text-[0.6rem] font-bold transition-colors ${autoDropMode === 'end' ? 'bg-[#ff6b00]/20 text-[#ff6b00] border border-[#ff6b00]/60' : 'text-[#ff6b00]/50 hover:text-[#ff6b00]'}`}
                       >
                         FULL TRACK
                       </button>
@@ -1064,12 +1064,12 @@ function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChang
       <div className="flex items-center justify-center gap-4 pt-2 border-t border-border/30">
         <button 
           onClick={onRandomizeStart}
-          className="p-2 text-muted hover:text-accent transition-colors"
+          className="p-2 text-[#ffe600] hover:text-[#ffe600]/80 drop-shadow-[0_0_4px_#ffe60080] transition-colors"
           title="Skip Front (Random 8-bar Section)"
         >
           <Dices className="w-4 h-4" />
         </button>
-        <button className="p-2 text-muted hover:text-text transition-colors"><SkipBack className="w-4 h-4" /></button>
+        <button className="p-2 text-[#00e5ff] hover:text-[#00e5ff]/80 drop-shadow-[0_0_4px_#00e5ff80] transition-colors"><SkipBack className="w-4 h-4" /></button>
         <button 
           onClick={onTogglePlay}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-105 shadow-lg ${
@@ -1078,7 +1078,7 @@ function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChang
         >
           {state.isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-1" />}
         </button>
-        <button className="p-2 text-muted hover:text-text transition-colors"><SkipForward className="w-4 h-4" /></button>
+        <button className="p-2 text-[#00e5ff] hover:text-[#00e5ff]/80 drop-shadow-[0_0_4px_#00e5ff80] transition-colors"><SkipForward className="w-4 h-4" /></button>
       </div>
     </div>
   );
