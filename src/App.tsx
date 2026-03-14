@@ -1,0 +1,1052 @@
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { 
+  Music, 
+  Play, 
+  Pause, 
+  SkipBack, 
+  SkipForward, 
+  Volume2, 
+  Plus, 
+  X,
+  Activity,
+  Timer,
+  Shuffle,
+  ListOrdered,
+  Dices
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Track, DeckState } from './types';
+import { analyzeAudio, formatTime } from './utils/audio';
+import { DJEngine } from './utils/engine';
+
+const initialDeckState: DeckState = {
+  trackId: null,
+  isPlaying: false,
+  volume: 1.0,
+  playbackRate: 1.0,
+  eq: { low: 0, mid: 0, high: 0 },
+  filter: 0, // 0 = off, -1 = LP, 1 = HP
+  currentTime: 0,
+  startOffset: 0
+};
+
+export default function App() {
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [mixQueue, setMixQueue] = useState<string[]>([]);
+  const [decks, setDecks] = useState<{ A: DeckState; B: DeckState }>({
+    A: { ...initialDeckState },
+    B: { ...initialDeckState }
+  });
+  const [crossfade, setCrossfade] = useState(0); // -1 to 1
+  const [masterVolume, setMasterVolume] = useState(0.8);
+  const [activeTab, setActiveTab] = useState<'songs' | 'mix' | 'fx'>('songs');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Auto Drop State
+  const [isAutoDropEnabled, setIsAutoDropEnabled] = useState(false);
+  const [autoDropMode, setAutoDropMode] = useState<'quick' | 'end'>('quick');
+  const [autoDropInterval, setAutoDropInterval] = useState(10);
+  const [autoDropOrder, setAutoDropOrder] = useState<'chronological' | 'random'>('chronological');
+  const [fxIntensity, setFxIntensity] = useState(0.5);
+  const [activeDeck, setActiveDeck] = useState<'A' | 'B'>('A');
+
+  const engineRef = useRef<DJEngine | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  
+  const autoDropTriggeredRef = useRef(false);
+  const isAutoDropEnabledRef = useRef(isAutoDropEnabled);
+  const autoDropModeRef = useRef(autoDropMode);
+  const autoDropIntervalRef = useRef(autoDropInterval);
+  const activeDeckRef = useRef(activeDeck);
+  const triggerAutoDropRef = useRef<() => void>(() => {});
+  const mixQueueRef = useRef(mixQueue);
+  const tracksRef = useRef(tracks);
+  const decksRef = useRef(decks);
+
+  useEffect(() => { isAutoDropEnabledRef.current = isAutoDropEnabled; }, [isAutoDropEnabled]);
+  useEffect(() => { autoDropModeRef.current = autoDropMode; }, [autoDropMode]);
+  useEffect(() => { autoDropIntervalRef.current = autoDropInterval; }, [autoDropInterval]);
+  useEffect(() => { activeDeckRef.current = activeDeck; }, [activeDeck]);
+  useEffect(() => { mixQueueRef.current = mixQueue; }, [mixQueue]);
+  useEffect(() => { tracksRef.current = tracks; }, [tracks]);
+  useEffect(() => { decksRef.current = decks; }, [decks]);
+
+  // Sync FX Intensity
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.deckA.fxIntensity = fxIntensity;
+      engineRef.current.deckB.fxIntensity = fxIntensity;
+    }
+  }, [fxIntensity]);
+
+  // Initialize Engine
+  useEffect(() => {
+    if (!engineRef.current) {
+      engineRef.current = new DJEngine();
+    }
+    return () => {
+      if (engineRef.current) {
+        engineRef.current.deckA.stop();
+        engineRef.current.deckB.stop();
+        engineRef.current.context.close();
+        engineRef.current = null;
+      }
+    };
+  }, []);
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
+    let files: FileList | null = null;
+    if ('files' in e.target) files = e.target.files;
+    else if ('dataTransfer' in e) {
+      e.preventDefault();
+      files = e.dataTransfer.files;
+    }
+    if (!files) return;
+
+    const filesArray = Array.from(files);
+    showToast(`Analyzing ${filesArray.length} tracks...`);
+
+    for (const file of filesArray) {
+      if (!file.type.startsWith('audio/')) continue;
+      const id = Math.random().toString(36).substring(7);
+      const url = URL.createObjectURL(file);
+      
+      const tempTrack: Track = {
+        id,
+        name: file.name.replace(/\.[^/.]+$/, ""),
+        file,
+        url,
+        duration: 0,
+        bpm: 'Analyzing...',
+        genre: 'Unknown',
+        color: `hsl(${Math.random() * 360}, 70%, 60%)`
+      };
+
+      setTracks(prev => [...prev, tempTrack]);
+
+      try {
+        if (!engineRef.current) throw new Error("Engine not initialized");
+        const analysis = await analyzeAudio(file, engineRef.current.context);
+        setTracks(prev => prev.map(t => t.id === id ? { ...t, ...analysis } : t));
+      } catch (err) {
+        console.error("Audio analysis failed:", err);
+        showToast(`Failed to analyze ${file.name}`, 'error');
+        setTracks(prev => prev.map(t => t.id === id ? { ...t, bpm: 120, genre: 'Electronic' } : t));
+      }
+    }
+  };
+
+  const getNextTrackId = useCallback((currentTrackId?: string) => {
+    if (mixQueueRef.current.length > 0) {
+      const nextId = mixQueueRef.current[0];
+      mixQueueRef.current = mixQueueRef.current.slice(1);
+      setMixQueue(mixQueueRef.current);
+      return nextId;
+    } else if (tracksRef.current.length > 0) {
+      if (autoDropOrder === 'random') {
+        const randomIndex = Math.floor(Math.random() * tracksRef.current.length);
+        return tracksRef.current[randomIndex].id;
+      } else {
+        const trackIdToUse = currentTrackId || decksRef.current[activeDeckRef.current].trackId;
+        const sortedTracks = [...tracksRef.current].sort((a, b) => {
+          if (a.bpm === 'Analyzing...') return 1;
+          if (b.bpm === 'Analyzing...') return -1;
+          return (a.bpm as number) - (b.bpm as number);
+        });
+        const currentIndex = sortedTracks.findIndex(t => t.id === trackIdToUse);
+        const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % sortedTracks.length;
+        return sortedTracks[nextIndex].id;
+      }
+    }
+    return null;
+  }, [autoDropOrder]);
+
+  const loadToDeck = useCallback(async (trackId: string, deckKey: 'A' | 'B') => {
+    const track = tracksRef.current.find(t => t.id === trackId);
+    if (!track) return;
+    
+    if (!engineRef.current) {
+      showToast('Audio engine not ready', 'error');
+      return;
+    }
+
+    if (engineRef.current.context.state === 'suspended') {
+      engineRef.current.context.resume();
+    }
+
+    if (!track.audioBuffer) {
+      showToast('Track is still analyzing or failed to load', 'error');
+      return;
+    }
+
+    const deck = deckKey === 'A' ? engineRef.current.deckA : engineRef.current.deckB;
+    deck.load(track.audioBuffer);
+    if (typeof track.bpm === 'number') {
+      deck.bpm = track.bpm;
+    }
+    
+    setDecks(prev => ({
+      ...prev,
+      [deckKey]: { ...prev[deckKey], trackId, isPlaying: false, currentTime: 0, startOffset: 0 }
+    }));
+    showToast(`Loaded to Deck ${deckKey}`);
+    if (deckKey === activeDeckRef.current) {
+      autoDropTriggeredRef.current = false;
+    }
+  }, [showToast]);
+
+  const setDeckPlayState = useCallback(async (deckKey: 'A' | 'B', play: boolean) => {
+    if (!engineRef.current) return;
+    if (engineRef.current.context.state === 'suspended') {
+      engineRef.current.context.resume();
+    }
+    const deck = deckKey === 'A' ? engineRef.current.deckA : engineRef.current.deckB;
+    
+    if (play && !deck.isPlaying) {
+      deck.play();
+    } else if (!play && deck.isPlaying) {
+      deck.pause();
+    }
+
+    setDecks(prev => ({
+      ...prev,
+      [deckKey]: { ...prev[deckKey], isPlaying: play }
+    }));
+  }, []);
+
+  const randomizeStart = useCallback((deckKey: 'A' | 'B') => {
+    const trackId = decksRef.current[deckKey].trackId;
+    if (!trackId) {
+      showToast('No track loaded', 'error');
+      return;
+    }
+    const track = tracksRef.current.find(t => t.id === trackId);
+    if (!track || typeof track.bpm !== 'number' || !track.audioBuffer) {
+      showToast('Track not fully analyzed', 'error');
+      return;
+    }
+
+    // 8 bars = 32 beats
+    // seconds per beat = 60 / BPM
+    // seconds per 8 bars = 32 * (60 / BPM) = 1920 / BPM
+    const sectionLength = 1920 / track.bpm;
+    const totalSections = Math.floor(track.audioBuffer.duration / sectionLength);
+    
+    if (totalSections > 1) {
+      // Pick a random section from 1 to totalSections - 1 (skip the front which is 0)
+      const randomSection = Math.floor(Math.random() * (totalSections - 1)) + 1;
+      const newTime = randomSection * sectionLength;
+      
+      const deck = deckKey === 'A' ? engineRef.current?.deckA : engineRef.current?.deckB;
+      if (deck) {
+        deck.seek(newTime);
+        setDecks(prev => ({
+          ...prev,
+          [deckKey]: { ...prev[deckKey], currentTime: newTime, startOffset: newTime }
+        }));
+        showToast(`Skipped to random 8-bar section (${formatTime(newTime)})`);
+      }
+    } else {
+      showToast('Track too short to skip sections', 'error');
+    }
+  }, [showToast]);
+
+  const playFullSong = useCallback(() => {
+    const active = activeDeckRef.current;
+    const deck = active === 'A' ? engineRef.current?.deckA : engineRef.current?.deckB;
+    if (deck) {
+      deck.seek(0);
+      setDecks(prev => ({
+        ...prev,
+        [active]: { ...prev[active], currentTime: 0, startOffset: 0, isPlaying: true }
+      }));
+      deck.play();
+      showToast(`Playing full song on Deck ${active}`);
+    }
+  }, [showToast]);
+
+  const triggerFX = useCallback((deckKey: 'A' | 'B', fxName: string, active: boolean) => {
+    const deck = deckKey === 'A' ? engineRef.current?.deckA : engineRef.current?.deckB;
+    if (deck) {
+      deck.triggerFX(fxName, active);
+    }
+  }, []);
+
+  const toggleDeckPlay = async (deckKey: 'A' | 'B') => {
+    if (!engineRef.current) return;
+    
+    if (engineRef.current.context.state === 'suspended') {
+      engineRef.current.context.resume();
+    }
+
+    const deck = deckKey === 'A' ? engineRef.current.deckA : engineRef.current.deckB;
+    const otherDeckKey = deckKey === 'A' ? 'B' : 'A';
+    const otherDeck = deckKey === 'A' ? engineRef.current.deckB : engineRef.current.deckA;
+    const willPlay = !decks[deckKey].isPlaying;
+    
+    if (willPlay) {
+      // If the other deck is playing, interrupt it
+      if (decks[otherDeckKey].isPlaying) {
+        otherDeck.pause();
+      }
+      
+      deck.play();
+      setActiveDeck(deckKey);
+      setCrossfade(deckKey === 'A' ? -1 : 1);
+      autoDropTriggeredRef.current = false;
+      
+      setDecks(prev => ({
+        ...prev,
+        [deckKey]: { ...prev[deckKey], isPlaying: true },
+        [otherDeckKey]: { ...prev[otherDeckKey], isPlaying: false }
+      }));
+
+      // Pre-load the new idle deck if auto-drop is enabled
+      if (isAutoDropEnabledRef.current) {
+        const upcomingTrackId = getNextTrackId(decks[deckKey].trackId as string);
+        if (upcomingTrackId) {
+          loadToDeck(upcomingTrackId, otherDeckKey);
+        }
+      }
+    } else {
+      deck.pause();
+      setDecks(prev => ({
+        ...prev,
+        [deckKey]: { ...prev[deckKey], isPlaying: false }
+      }));
+    }
+  };
+
+  const triggerAutoDrop = useCallback(async () => {
+    try {
+      const nextDeckKey = activeDeck === 'A' ? 'B' : 'A';
+      
+      // If the next deck doesn't have a track loaded (e.g. user ejected it), load one
+      let nextTrackId = decksRef.current[nextDeckKey].trackId;
+      if (!nextTrackId) {
+        nextTrackId = getNextTrackId(decksRef.current[activeDeck].trackId);
+        if (nextTrackId) await loadToDeck(nextTrackId, nextDeckKey);
+      }
+
+      if (nextTrackId) {
+        setDeckPlayState(nextDeckKey, true);
+        setActiveDeck(nextDeckKey);
+        
+        // Smooth crossfade
+        const startCrossfade = activeDeck === 'A' ? -1 : 1;
+        const endCrossfade = nextDeckKey === 'A' ? -1 : 1;
+        
+        // Duration: 2s for quick mix, or the full interval for end-of-track blend
+        const duration = autoDropMode === 'quick' ? 2000 : autoDropInterval * 1000;
+        const startTime = performance.now();
+        
+        const animateCrossfade = (time: number) => {
+          const elapsed = time - startTime;
+          const progress = Math.min(elapsed / duration, 1);
+          const ease = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+          
+          setCrossfade(startCrossfade + (endCrossfade - startCrossfade) * ease);
+          
+          if (progress < 1) {
+            requestAnimationFrame(animateCrossfade);
+          } else {
+            setDeckPlayState(activeDeck, false);
+            autoDropTriggeredRef.current = false;
+            
+            // Pre-load the new idle deck
+            const newIdleDeck = activeDeck;
+            const upcomingTrackId = getNextTrackId(nextTrackId as string);
+            if (upcomingTrackId) {
+              loadToDeck(upcomingTrackId, newIdleDeck);
+            }
+          }
+        };
+        requestAnimationFrame(animateCrossfade);
+      } else {
+        autoDropTriggeredRef.current = false;
+      }
+    } catch (error) {
+      console.error("Error in triggerAutoDrop:", error);
+      autoDropTriggeredRef.current = false;
+    }
+  }, [activeDeck, autoDropMode, autoDropInterval, setDeckPlayState, getNextTrackId, loadToDeck]);
+
+  const startAutoMix = async () => {
+    if (engineRef.current?.context.state === 'suspended') {
+      engineRef.current.context.resume();
+    }
+
+    if (tracksRef.current.length === 0 && mixQueueRef.current.length === 0) {
+      showToast('No tracks available to mix', 'error');
+      return;
+    }
+
+    const firstTrackId = getNextTrackId();
+    if (firstTrackId) {
+      await loadToDeck(firstTrackId, 'A');
+      setCrossfade(-1);
+      setActiveDeck('A');
+      setDeckPlayState('A', true);
+      setIsAutoDropEnabled(true);
+      autoDropTriggeredRef.current = false;
+      
+      // Pre-load Deck B
+      const secondTrackId = getNextTrackId(firstTrackId);
+      if (secondTrackId) {
+        await loadToDeck(secondTrackId, 'B');
+      }
+    }
+  };
+
+  useEffect(() => { triggerAutoDropRef.current = triggerAutoDrop; }, [triggerAutoDrop]);
+
+  const updateDeckEQ = (deckKey: 'A' | 'B', band: 'low' | 'mid' | 'high', value: number) => {
+    if (!engineRef.current) return;
+    const deck = deckKey === 'A' ? engineRef.current.deckA : engineRef.current.deckB;
+    
+    const newEQ = { ...decks[deckKey].eq, [band]: value };
+    deck.setEQ(newEQ.low, newEQ.mid, newEQ.high);
+    
+    setDecks(prev => ({
+      ...prev,
+      [deckKey]: { ...prev[deckKey], eq: newEQ }
+    }));
+  };
+
+  const updateDeckFilter = (deckKey: 'A' | 'B', value: number) => {
+    if (!engineRef.current) return;
+    const deck = deckKey === 'A' ? engineRef.current.deckA : engineRef.current.deckB;
+    
+    // value: -1 (LP) to 1 (HP)
+    if (value < 0) {
+      // LP: 200Hz to 20000Hz
+      const freq = 200 + (1 + value) * 19800;
+      deck.setFilter(freq, 'lowpass');
+    } else if (value > 0) {
+      // HP: 20Hz to 4000Hz
+      const freq = 20 + value * 3980;
+      deck.setFilter(freq, 'highpass');
+    } else {
+      // Off: LP at 20000Hz
+      deck.setFilter(20000, 'lowpass');
+    }
+    
+    setDecks(prev => ({
+      ...prev,
+      [deckKey]: { ...prev[deckKey], filter: value }
+    }));
+  };
+
+  const updateDeckTempo = (deckKey: 'A' | 'B', rate: number) => {
+    if (!engineRef.current) return;
+    const deck = deckKey === 'A' ? engineRef.current.deckA : engineRef.current.deckB;
+    deck.setPlaybackRate(rate);
+    setDecks(prev => ({
+      ...prev,
+      [deckKey]: { ...prev[deckKey], playbackRate: rate }
+    }));
+  };
+
+  // Sync Engine with UI State
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.setCrossfade(crossfade);
+    }
+  }, [crossfade]);
+
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.setMasterVolume(masterVolume);
+    }
+  }, [masterVolume]);
+
+  // Update current times
+  useEffect(() => {
+    const update = () => {
+      if (engineRef.current) {
+        const currentTimeA = engineRef.current.deckA.getCurrentTime();
+        const currentTimeB = engineRef.current.deckB.getCurrentTime();
+
+        setDecks(prev => ({
+          A: { ...prev.A, currentTime: currentTimeA },
+          B: { ...prev.B, currentTime: currentTimeB }
+        }));
+
+        if (isAutoDropEnabledRef.current) {
+          const active = activeDeckRef.current;
+          const currentDeckTime = active === 'A' ? currentTimeA : currentTimeB;
+          const isPlaying = active === 'A' ? engineRef.current.deckA.isPlaying : engineRef.current.deckB.isPlaying;
+          const duration = active === 'A' ? engineRef.current.deckA.buffer?.duration || 0 : engineRef.current.deckB.buffer?.duration || 0;
+          const startOffset = decksRef.current[active].startOffset || 0;
+          
+          let shouldDrop = false;
+          if (autoDropModeRef.current === 'quick') {
+            shouldDrop = currentDeckTime >= startOffset + autoDropIntervalRef.current;
+          } else {
+            shouldDrop = currentDeckTime >= duration - autoDropIntervalRef.current && duration > 0;
+          }
+
+          if (isPlaying && shouldDrop && !autoDropTriggeredRef.current) {
+            autoDropTriggeredRef.current = true;
+            triggerAutoDropRef.current();
+          }
+        }
+      }
+      rafRef.current = requestAnimationFrame(update);
+    };
+    rafRef.current = requestAnimationFrame(update);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
+
+  const addToMix = (id: string) => {
+    setMixQueue(prev => prev.includes(id) ? prev.filter(tid => tid !== id) : [...prev, id]);
+  };
+
+  const groupedTracks = useMemo(() => {
+    const groups: Record<string, Track[]> = {};
+    
+    tracks.forEach(track => {
+      if (track.bpm === 'Analyzing...') {
+        if (!groups['Analyzing']) groups['Analyzing'] = [];
+        groups['Analyzing'].push(track);
+      } else {
+        const bpm = track.bpm as number;
+        const lowerBound = Math.floor(bpm / 5) * 5;
+        const upperBound = lowerBound + 4;
+        const rangeLabel = `${lowerBound} - ${upperBound} BPM`;
+        
+        if (!groups[rangeLabel]) groups[rangeLabel] = [];
+        groups[rangeLabel].push(track);
+      }
+    });
+    
+    const sortedKeys = Object.keys(groups).sort((a, b) => {
+      if (a === 'Analyzing') return 1;
+      if (b === 'Analyzing') return -1;
+      const bpmA = parseInt(a.split(' ')[0]);
+      const bpmB = parseInt(b.split(' ')[0]);
+      return bpmA - bpmB;
+    });
+    
+    return sortedKeys.map(key => ({
+      label: key,
+      tracks: groups[key]
+    }));
+  }, [tracks]);
+
+  // Calculate countdown
+  let countdownText = '';
+  if (isAutoDropEnabled) {
+    const activeDeckState = decks[activeDeck];
+    const track = tracks.find(t => t.id === activeDeckState.trackId);
+    if (activeDeckState.isPlaying && track?.audioBuffer) {
+      const duration = track.audioBuffer.duration;
+      const current = activeDeckState.currentTime;
+      const startOffset = activeDeckState.startOffset || 0;
+      let remaining = 0;
+      
+      if (autoDropMode === 'quick') {
+        remaining = (startOffset + autoDropInterval) - current;
+      } else {
+        remaining = (duration - autoDropInterval) - current;
+      }
+      
+      if (autoDropTriggeredRef.current) {
+        countdownText = 'MIXING...';
+      } else if (remaining > 0) {
+        countdownText = `NEXT IN ${Math.ceil(remaining)}s (c:${current.toFixed(1)} s:${engineRef.current?.context.state})`;
+      } else {
+        countdownText = 'DROPPING...';
+      }
+    } else {
+      countdownText = 'WAITING...';
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-screen bg-bg text-text font-sans selection:bg-accent/30 overflow-hidden">
+      {/* Header */}
+      <header className="relative z-10 flex items-center justify-between px-8 py-4 border-b border-border bg-bg/90 backdrop-blur-md shrink-0">
+        <div className="font-bebas text-4xl tracking-[4px] text-accent drop-shadow-[0_0_20px_rgba(0,245,160,0.4)]">
+          DJ MIX<span className="text-text"> DASH</span>
+        </div>
+        <div className="flex gap-6 items-center">
+          <div className="stat-pill">TRACKS <span className="val">{tracks.length}</span></div>
+          <div className="stat-pill">MIX QUEUE <span className="val">{mixQueue.length}</span></div>
+          <div className="flex items-center gap-3 ml-4">
+            <Volume2 className="w-4 h-4 text-muted" />
+            <input 
+              type="range" min="0" max="1" step="0.01" value={masterVolume} 
+              onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
+              className="w-24 accent-accent"
+            />
+          </div>
+        </div>
+      </header>
+
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_1fr] overflow-hidden">
+        {/* Sidebar */}
+        <aside className="border-r border-border bg-surface flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-border flex items-center justify-between">
+            <div className="font-bebas text-lg tracking-[3px] text-muted">LIBRARY</div>
+            <button onClick={() => fileInputRef.current?.click()} className="text-accent hover:scale-110 transition-transform">
+              <Plus className="w-5 h-5" />
+            </button>
+          </div>
+
+          <input type="file" ref={fileInputRef} className="hidden" multiple accept="audio/*" onChange={handleFileUpload} />
+
+          <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+            {[...tracks].sort((a, b) => {
+              if (a.bpm === 'Analyzing...') return 1;
+              if (b.bpm === 'Analyzing...') return -1;
+              return (a.bpm as number) - (b.bpm as number);
+            }).map(track => (
+              <div 
+                key={track.id}
+                draggable
+                onDragStart={(e) => e.dataTransfer.setData('trackId', track.id)}
+                className="flex items-center p-2 gap-3 rounded-lg hover:bg-white/5 group transition-all cursor-grab active:cursor-grabbing"
+              >
+                <div className="w-8 h-8 rounded bg-surface2 flex items-center justify-center text-xs font-bold shrink-0" style={{ color: track.color }}>
+                  {track.genre[0]}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[0.8rem] font-medium truncate">{track.name}</div>
+                  <div className="text-[0.65rem] text-muted font-mono">{track.bpm} BPM</div>
+                </div>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => loadToDeck(track.id, 'A')} className="p-1 hover:text-accent" title="Load to Deck A">A</button>
+                  <button onClick={() => loadToDeck(track.id, 'B')} className="p-1 hover:text-accent2" title="Load to Deck B">B</button>
+                  <button onClick={() => addToMix(track.id)} className={`p-1 ${mixQueue.includes(track.id) ? 'text-accent3' : 'text-muted'}`}>
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* Main Console */}
+        <main className="flex flex-col overflow-hidden">
+          {/* Global Progress & Controls */}
+          <div className="px-6 pt-6 flex flex-col items-center bg-surface2/30">
+            <div className="w-full max-w-4xl flex items-center gap-4">
+              <button 
+                onClick={playFullSong}
+                className="px-4 py-2 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 rounded-xl text-[0.75rem] font-bold flex items-center gap-2 transition-all shrink-0 shadow-lg shadow-accent/5"
+              >
+                <Play className="w-3.5 h-3.5" /> PLAY FULL SONG
+              </button>
+              
+              <div className="flex-1 h-12 bg-bg rounded-xl border border-border relative overflow-hidden group cursor-pointer shadow-inner"
+                   onClick={(e) => {
+                     const rect = e.currentTarget.getBoundingClientRect();
+                     const x = e.clientX - rect.left;
+                     const pct = x / rect.width;
+                     const active = activeDeckRef.current;
+                     const deck = active === 'A' ? engineRef.current?.deckA : engineRef.current?.deckB;
+                     if (deck && deck.buffer) {
+                       const newTime = pct * deck.buffer.duration;
+                       deck.seek(newTime);
+                       setDecks(prev => ({ ...prev, [active]: { ...prev[active], currentTime: newTime, startOffset: newTime } }));
+                     }
+                   }}>
+                {/* Progress Fill */}
+                <motion.div 
+                  className="absolute inset-y-0 left-0 bg-accent/10 border-r border-accent/40"
+                  style={{ width: `${(decks[activeDeck].currentTime / (tracks.find(t => t.id === decks[activeDeck].trackId)?.audioBuffer?.duration || 1)) * 100}%` }}
+                />
+                
+                {/* Track Name Scrolling */}
+                <div className="absolute inset-0 flex items-center px-6 pointer-events-none overflow-hidden">
+                  <div className="whitespace-nowrap animate-marquee font-mono text-[0.8rem] text-accent/60 tracking-wider">
+                    {tracks.find(t => t.id === decks[activeDeck].trackId)?.name || 'NO TRACK PLAYING'} • 
+                    {tracks.find(t => t.id === decks[activeDeck].trackId)?.name || 'NO TRACK PLAYING'} • 
+                    {tracks.find(t => t.id === decks[activeDeck].trackId)?.name || 'NO TRACK PLAYING'} • 
+                    {tracks.find(t => t.id === decks[activeDeck].trackId)?.name || 'NO TRACK PLAYING'}
+                  </div>
+                </div>
+                
+                {/* Time display */}
+                <div className="absolute right-4 inset-y-0 flex items-center pointer-events-none text-[0.7rem] font-mono text-muted bg-bg/80 px-2 my-2 rounded-md">
+                  {formatTime(decks[activeDeck].currentTime)} / {formatTime(tracks.find(t => t.id === decks[activeDeck].trackId)?.audioBuffer?.duration || 0)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Deck Area */}
+          <div className="p-6 grid grid-cols-[1fr_120px_1fr] gap-6 bg-surface2/30 border-b border-border">
+            {/* Deck A */}
+            <DeckUI 
+              deckKey="A" 
+              state={decks.A} 
+              track={tracks.find(t => t.id === decks.A.trackId)} 
+              onTogglePlay={() => toggleDeckPlay('A')}
+              onEQChange={(band, val) => updateDeckEQ('A', band, val)}
+              onFilterChange={(val) => updateDeckFilter('A', val)}
+              onTempoChange={(val) => updateDeckTempo('A', val)}
+              onDropTrack={(id) => loadToDeck(id, 'A')}
+              onRandomizeStart={() => randomizeStart('A')}
+              onTriggerFX={(fx, active) => triggerFX('A', fx, active)}
+            />
+
+            {/* Mixer Center */}
+            <div className="flex flex-col items-center justify-between py-4">
+              <div className="font-bebas text-xs tracking-widest text-muted">MIXER</div>
+              
+              <div className="flex flex-col items-center gap-4 w-full">
+                <div className="flex flex-col items-center gap-1">
+                  <input 
+                    type="range" min="0" max="1" step="0.01" value={fxIntensity} 
+                    onChange={(e) => setFxIntensity(parseFloat(e.target.value))}
+                    className="w-24 accent-accent"
+                  />
+                  <div className="font-mono text-[0.5rem] text-muted uppercase tracking-tighter">FX INTENSITY</div>
+                </div>
+
+                <div className="h-24 w-2 bg-bg rounded-full relative overflow-hidden">
+                  <motion.div 
+                    animate={{ height: `${(crossfade + 1) * 50}%` }}
+                    className="absolute bottom-0 w-full bg-accent/50"
+                  />
+                </div>
+                <input 
+                  type="range" min="-1" max="1" step="0.01" value={crossfade} 
+                  onChange={(e) => setCrossfade(parseFloat(e.target.value))}
+                  className="w-32 accent-accent rotate-0"
+                />
+                <div className="font-mono text-[0.6rem] text-muted">CROSSFADE</div>
+              </div>
+
+              <div className="flex flex-col gap-3 w-full px-4">
+                <div className="flex items-center justify-between bg-bg rounded-lg p-1 border border-border">
+                  <button 
+                    onClick={() => setIsAutoDropEnabled(!isAutoDropEnabled)}
+                    className={`flex-1 py-1.5 rounded text-[0.65rem] font-bold flex items-center justify-center gap-1 transition-colors ${isAutoDropEnabled ? 'bg-accent text-black' : 'text-muted hover:text-text'}`}
+                  >
+                    <Timer className="w-3 h-3" /> AUTO
+                  </button>
+                  <button 
+                    onClick={() => setAutoDropOrder(prev => prev === 'chronological' ? 'random' : 'chronological')}
+                    className="flex-1 py-1.5 rounded text-[0.65rem] font-bold flex items-center justify-center gap-1 text-muted hover:text-text transition-colors"
+                    title={`Order: ${autoDropOrder}`}
+                  >
+                    {autoDropOrder === 'chronological' ? <ListOrdered className="w-3 h-3" /> : <Shuffle className="w-3 h-3" />}
+                  </button>
+                </div>
+                
+                {isAutoDropEnabled && (
+                  <div className="flex flex-col gap-2 w-full">
+                    <div className="flex bg-bg border border-border rounded-lg p-1">
+                      <button 
+                        onClick={() => setAutoDropMode('quick')}
+                        className={`flex-1 py-1 rounded text-[0.6rem] font-bold transition-colors ${autoDropMode === 'quick' ? 'bg-surface2 text-text' : 'text-muted hover:text-text'}`}
+                      >
+                        QUICK MIX
+                      </button>
+                      <button 
+                        onClick={() => setAutoDropMode('end')}
+                        className={`flex-1 py-1 rounded text-[0.6rem] font-bold transition-colors ${autoDropMode === 'end' ? 'bg-surface2 text-text' : 'text-muted hover:text-text'}`}
+                      >
+                        FULL TRACK
+                      </button>
+                    </div>
+                    <select 
+                      value={autoDropInterval}
+                      onChange={(e) => setAutoDropInterval(Number(e.target.value))}
+                      className="w-full bg-bg border border-border rounded-lg py-1 px-2 text-[0.7rem] font-mono text-center text-accent outline-none"
+                    >
+                      {[5, 10, 15, 20, 25, 30, 45, 60].map(sec => (
+                        <option key={sec} value={sec}>{autoDropMode === 'quick' ? `${sec} SEC DROP` : `${sec} SEC BLEND`}</option>
+                      ))}
+                    </select>
+                    
+                    <button
+                      onClick={startAutoMix}
+                      className="w-full mt-1 bg-accent hover:bg-accent/80 text-black py-1.5 rounded-lg text-[0.7rem] font-bold tracking-wider transition-colors"
+                    >
+                      START MIX
+                    </button>
+                    
+                    {isAutoDropEnabled && (
+                      <div className="w-full mt-1 bg-surface2 border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-center text-accent animate-pulse">
+                        {countdownText}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Deck B */}
+            <DeckUI 
+              deckKey="B" 
+              state={decks.B} 
+              track={tracks.find(t => t.id === decks.B.trackId)} 
+              onTogglePlay={() => toggleDeckPlay('B')}
+              onEQChange={(band, val) => updateDeckEQ('B', band, val)}
+              onFilterChange={(val) => updateDeckFilter('B', val)}
+              onTempoChange={(val) => updateDeckTempo('B', val)}
+              onDropTrack={(id) => loadToDeck(id, 'B')}
+              onRandomizeStart={() => randomizeStart('B')}
+              onTriggerFX={(fx, active) => triggerFX('B', fx, active)}
+            />
+          </div>
+
+          {/* Bottom Tabs */}
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex border-b border-border bg-surface px-6">
+              {['songs', 'mix', 'fx'].map(tab => (
+                <button 
+                  key={tab}
+                  onClick={() => setActiveTab(tab as any)}
+                  className={`px-6 py-3 text-[0.75rem] font-medium tracking-widest uppercase transition-all border-b-2 ${
+                    activeTab === tab ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+              {activeTab === 'songs' && (
+                <div className="space-y-8">
+                  {tracks.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">
+                      <Music className="w-12 h-12 mb-4" />
+                      <p>Upload audio files to see your library</p>
+                    </div>
+                  ) : (
+                    groupedTracks.map(group => (
+                      <div key={group.label} className="space-y-3">
+                        <div className="flex items-center gap-3">
+                          <h3 className="font-bebas text-lg tracking-[2px] text-muted">{group.label}</h3>
+                          <div className="h-px flex-1 bg-border/50"></div>
+                          <span className="font-mono text-[0.65rem] text-muted">{group.tracks.length} TRACK{group.tracks.length !== 1 ? 'S' : ''}</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                          {group.tracks.map(track => (
+                            <div key={track.id} className="bg-surface border border-border rounded-xl p-4 flex items-center gap-4 group hover:border-accent/50 transition-colors">
+                              <div className="w-12 h-12 rounded-lg flex items-center justify-center text-2xl shadow-md" style={{ backgroundColor: track.color }}>🎵</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold truncate">{track.name}</div>
+                                <div className="text-xs text-muted font-mono mt-1">{track.bpm} BPM · {track.genre}</div>
+                              </div>
+                              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => loadToDeck(track.id, 'A')} className="px-3 py-1.5 rounded bg-bg border border-border text-[0.6rem] font-bold hover:text-accent hover:border-accent transition-colors">DECK A</button>
+                                <button onClick={() => loadToDeck(track.id, 'B')} className="px-3 py-1.5 rounded bg-bg border border-border text-[0.6rem] font-bold hover:text-accent2 hover:border-accent2 transition-colors">DECK B</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+              {activeTab === 'mix' && (
+                <div className="space-y-2">
+                  {mixQueue.map((id, i) => {
+                    const t = tracks.find(track => track.id === id);
+                    return t ? (
+                      <div key={id} className="flex items-center gap-4 p-3 bg-surface border border-border rounded-lg">
+                        <div className="font-mono text-xs text-muted">{i + 1}</div>
+                        <div className="flex-1 font-medium">{t.name}</div>
+                        <div className="text-xs text-muted">{t.bpm} BPM</div>
+                        <button onClick={() => addToMix(id)} className="text-muted hover:text-red"><X className="w-4 h-4" /></button>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </main>
+      </div>
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div 
+            initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 100, opacity: 0 }}
+            className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg border-l-4 shadow-xl z-50 bg-surface border-border ${toast.type === 'error' ? 'border-l-red' : 'border-l-accent'}`}
+          >
+            <div className="text-sm font-medium">{toast.message}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChange, onTempoChange, onDropTrack, onRandomizeStart, onTriggerFX }: {
+  deckKey: 'A' | 'B',
+  state: DeckState,
+  track?: Track,
+  onTogglePlay: () => void,
+  onEQChange: (band: 'low' | 'mid' | 'high', val: number) => void,
+  onFilterChange: (val: number) => void,
+  onTempoChange: (val: number) => void,
+  onDropTrack: (trackId: string) => void,
+  onRandomizeStart: () => void,
+  onTriggerFX: (fx: string, active: boolean) => void
+}) {
+  const [activeFX, setActiveFX] = useState<string | null>(null);
+
+  const fxPads = [
+    { id: 'baby_scratch', label: 'BABY SCRATCH', color: 'bg-accent' },
+    { id: 'flare_scratch', label: 'FLARE SCRATCH', color: 'bg-accent' },
+    { id: 'echo_scratch', label: 'ECHO SCRATCH', color: 'bg-accent' },
+    { id: 'beatmasher', label: 'BEATMASHER', color: 'bg-accent' },
+    { id: 'echo_out', label: 'ECHO OUT', color: 'bg-accent2' },
+    { id: 'delay_build', label: 'DELAY BUILD', color: 'bg-accent2' },
+    { id: 'vinyl_stop', label: 'VINYL STOP', color: 'bg-red' },
+    { id: 'filter_riser', label: 'FILTER RISER', color: 'bg-accent3' },
+  ];
+
+  return (
+    <div 
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        const trackId = e.dataTransfer.getData('trackId');
+        if (trackId) onDropTrack(trackId);
+      }}
+      className={`flex flex-col gap-4 p-4 rounded-2xl border border-border bg-bg/50 transition-colors ${deckKey === 'A' ? 'border-l-accent/30' : 'border-r-accent2/30'} hover:bg-surface`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl shadow-lg ${deckKey === 'A' ? 'bg-accent/20' : 'bg-accent2/20'}`}>
+            {track ? '🎵' : <Activity className="w-5 h-5 text-muted" />}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-bold truncate w-40">{track?.name || 'NO TRACK LOADED'}</div>
+            <div className="text-[0.6rem] font-mono text-muted uppercase tracking-widest">DECK {deckKey}</div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-xl font-mono font-medium text-accent">{track?.bpm || '000'}</div>
+          <div className="text-[0.6rem] text-muted font-mono">BPM</div>
+        </div>
+      </div>
+
+      {/* Waveform Placeholder / Progress */}
+      <div className="h-16 bg-bg rounded-lg relative overflow-hidden border border-border/50">
+        <div 
+          className={`absolute inset-y-0 left-0 transition-all duration-100 ${deckKey === 'A' ? 'bg-accent/20' : 'bg-accent2/20'}`}
+          style={{ width: `${(state.currentTime / (track?.duration || 1)) * 100}%` }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center font-mono text-[0.6rem] text-muted">
+          {formatTime(state.currentTime)} / {formatTime(track?.duration || 0)}
+        </div>
+      </div>
+
+      {/* FX Pads */}
+      <div className="grid grid-cols-4 gap-2">
+        {fxPads.map(pad => (
+          <button
+            key={pad.id}
+            onMouseDown={() => {
+              setActiveFX(pad.id);
+              onTriggerFX(pad.id, true);
+            }}
+            onMouseUp={() => {
+              setActiveFX(null);
+              onTriggerFX(pad.id, false);
+            }}
+            onMouseLeave={() => {
+              if (activeFX === pad.id) {
+                setActiveFX(null);
+                onTriggerFX(pad.id, false);
+              }
+            }}
+            className={`h-12 rounded-lg text-[0.55rem] font-bold flex items-center justify-center text-center p-1 leading-tight transition-all active:scale-95 ${
+              activeFX === pad.id 
+                ? `${pad.color} text-black animate-pulse-glow` 
+                : 'bg-surface2 text-muted hover:text-text hover:border-muted/50 border border-transparent'
+            }`}
+          >
+            {pad.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Controls */}
+      <div className="grid grid-cols-2 gap-6">
+        {/* EQ Knobs */}
+        <div className="space-y-3">
+          <div className="font-mono text-[0.55rem] text-muted tracking-widest uppercase">Equalizer</div>
+          <div className="flex justify-between gap-2">
+            {(['low', 'mid', 'high'] as const).map(band => (
+              <div key={band} className="flex flex-col items-center gap-1">
+                <input 
+                  type="range" min="-12" max="12" step="0.5" value={state.eq[band]} 
+                  onChange={(e) => onEQChange(band, parseFloat(e.target.value))}
+                  className="h-16 w-1 accent-accent vertical-range"
+                  style={{ appearance: 'slider-vertical' } as any}
+                />
+                <span className="text-[0.5rem] text-muted uppercase">{band}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Filter & Tempo */}
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <div className="flex justify-between font-mono text-[0.55rem] text-muted uppercase">
+              <span>Filter</span>
+              <span>{state.filter === 0 ? 'OFF' : (state.filter < 0 ? 'LPF' : 'HPF')}</span>
+            </div>
+            <input 
+              type="range" min="-1" max="1" step="0.01" value={state.filter} 
+              onChange={(e) => onFilterChange(parseFloat(e.target.value))}
+              className="w-full h-1 accent-accent"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="flex justify-between font-mono text-[0.55rem] text-muted uppercase">
+              <span>Tempo</span>
+              <span>{state.playbackRate.toFixed(2)}x</span>
+            </div>
+            <input 
+              type="range" min="0.5" max="1.5" step="0.01" value={state.playbackRate} 
+              onChange={(e) => onTempoChange(parseFloat(e.target.value))}
+              className="w-full h-1 accent-accent"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Transport */}
+      <div className="flex items-center justify-center gap-4 pt-2 border-t border-border/30">
+        <button 
+          onClick={onRandomizeStart}
+          className="p-2 text-muted hover:text-accent transition-colors"
+          title="Skip Front (Random 8-bar Section)"
+        >
+          <Dices className="w-4 h-4" />
+        </button>
+        <button className="p-2 text-muted hover:text-text transition-colors"><SkipBack className="w-4 h-4" /></button>
+        <button 
+          onClick={onTogglePlay}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-105 shadow-lg ${
+            state.isPlaying ? 'bg-red text-white' : (deckKey === 'A' ? 'bg-accent text-black' : 'bg-accent2 text-white')
+          }`}
+        >
+          {state.isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-1" />}
+        </button>
+        <button className="p-2 text-muted hover:text-text transition-colors"><SkipForward className="w-4 h-4" /></button>
+      </div>
+    </div>
+  );
+}
