@@ -195,7 +195,8 @@ export class Deck {
     }
   }
 
-  clearFX(fxName?: string) {
+  clearFX(_fxName?: string) {
+    // Stop any interval-based FX immediately
     if (this.fxTimer) {
       clearInterval(this.fxTimer);
       this.fxTimer = null;
@@ -203,34 +204,36 @@ export class Deck {
 
     const now = this.context.currentTime;
 
+    // Cancel ALL scheduled automation and snap to clean values instantly
     this.gateNode.gain.cancelScheduledValues(now);
-    this.gateNode.gain.setTargetAtTime(1, now, 0.05);
-    this.fxGain.gain.cancelScheduledValues(now);
-    this.fxGain.gain.setTargetAtTime(1, now, 0.05);
-    this.delayFeedback.gain.setTargetAtTime(0, now, 0.05);
+    this.gateNode.gain.setValueAtTime(1, now);
 
-    // Reset master filter to pass-through state
+    this.fxGain.gain.cancelScheduledValues(now);
+    this.fxGain.gain.setValueAtTime(1, now);
+
+    this.delayFeedback.gain.cancelScheduledValues(now);
+    this.delayFeedback.gain.setValueAtTime(0, now);
+
+    this.delayNode.delayTime.cancelScheduledValues(now);
+    this.delayNode.delayTime.setValueAtTime(0, now);
+
+    // Reset master filter to full pass-through
     this.masterFilter.frequency.cancelScheduledValues(now);
     this.masterFilter.type = 'lowpass';
-    this.masterFilter.frequency.setTargetAtTime(20000, now, 0.05);
+    this.masterFilter.frequency.setValueAtTime(20000, now);
 
-    this.setPlaybackRate(this.playbackRate);
-
-    if (this.noiseNode) {
-      this.noiseGain.gain.setTargetAtTime(0, now, 0.1);
-      setTimeout(() => {
-        if (this.noiseNode) {
-          try { this.noiseNode.stop(); } catch (_) { /* already stopped */ }
-          this.noiseNode = null;
-        }
-      }, 200);
+    // Cancel any playback-rate ramp (e.g. vinyl stop) and restore normal speed
+    if (this.source) {
+      this.source.playbackRate.cancelScheduledValues(now);
+      this.source.playbackRate.setValueAtTime(this.playbackRate, now);
     }
 
-    if (fxName === 'echo_scratch') {
-      const beatDuration = 60 / (this.bpm || 120);
-      this.delayNode.delayTime.setValueAtTime(beatDuration * 0.5, now);
-      this.delayFeedback.gain.setTargetAtTime(0.4, now, 0.01);
-      this.delayFeedback.gain.setTargetAtTime(0, now + beatDuration * 2, 1.0);
+    // Kill noise node immediately
+    if (this.noiseNode) {
+      this.noiseGain.gain.cancelScheduledValues(now);
+      this.noiseGain.gain.setValueAtTime(0, now);
+      try { this.noiseNode.stop(); } catch (_) { /* already stopped */ }
+      this.noiseNode = null;
     }
 
     this.activeFX = null;
