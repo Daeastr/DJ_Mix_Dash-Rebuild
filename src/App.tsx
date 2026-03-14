@@ -901,16 +901,17 @@ function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChang
   onTriggerFX: (fx: string, active: boolean) => void
 }) {
   const [activeFX, setActiveFX] = useState<string | null>(null);
+  const [lastUsedFX, setLastUsedFX] = useState<string | null>(null);
 
   const fxPads = [
-    { id: 'baby_scratch', label: 'BABY SCRATCH', color: 'bg-accent' },
-    { id: 'flare_scratch', label: 'FLARE SCRATCH', color: 'bg-accent' },
-    { id: 'echo_scratch', label: 'ECHO SCRATCH', color: 'bg-accent' },
-    { id: 'beatmasher', label: 'BEATMASHER', color: 'bg-accent' },
-    { id: 'echo_out', label: 'ECHO OUT', color: 'bg-accent2' },
-    { id: 'delay_build', label: 'DELAY BUILD', color: 'bg-accent2' },
-    { id: 'vinyl_stop', label: 'VINYL STOP', color: 'bg-red' },
-    { id: 'filter_riser', label: 'FILTER RISER', color: 'bg-accent3' },
+    { id: 'baby_scratch',  label: 'BABY SCRATCH',  neon: '#00e5ff' },
+    { id: 'flare_scratch', label: 'FLARE SCRATCH', neon: '#ff2d9b' },
+    { id: 'echo_scratch',  label: 'ECHO SCRATCH',  neon: '#bf00ff' },
+    { id: 'beatmasher',    label: 'BEATMASHER',    neon: '#ffe600' },
+    { id: 'echo_out',      label: 'ECHO OUT',      neon: '#ff6b00' },
+    { id: 'delay_build',   label: 'DELAY BUILD',   neon: '#4d9fff' },
+    { id: 'vinyl_stop',    label: 'VINYL STOP',    neon: '#ef4444' },
+    { id: 'filter_riser',  label: 'FILTER RISER',  neon: '#00ffd5' },
   ];
 
   return (
@@ -951,33 +952,66 @@ function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChang
       </div>
 
       {/* FX Pads */}
-      <div className="grid grid-cols-4 gap-2">
-        {fxPads.map(pad => (
-          <button
-            key={pad.id}
-            onMouseDown={() => {
-              setActiveFX(pad.id);
-              onTriggerFX(pad.id, true);
-            }}
-            onMouseUp={() => {
+      <div className="relative">
+        {/* Stop FX / Retrigger button — top-right corner of the pad grid */}
+        <button
+          onClick={() => {
+            if (activeFX) {
+              onTriggerFX(activeFX, false);
               setActiveFX(null);
-              onTriggerFX(pad.id, false);
-            }}
-            onMouseLeave={() => {
-              if (activeFX === pad.id) {
+            } else if (lastUsedFX) {
+              setActiveFX(lastUsedFX);
+              onTriggerFX(lastUsedFX, true);
+            }
+          }}
+          title={activeFX ? 'STOP FX' : lastUsedFX ? `RETRIGGER: ${lastUsedFX.replace(/_/g, ' ').toUpperCase()}` : 'NO FX USED YET'}
+          className="absolute -top-1 right-0 z-10 h-6 px-2 rounded text-[0.5rem] font-bold tracking-wider transition-all active:scale-95"
+          style={{
+            backgroundColor: activeFX ? '#ef4444' : lastUsedFX ? '#00f5a0' : '#1e2130',
+            color: activeFX ? '#fff' : lastUsedFX ? '#000' : '#4a5568',
+            boxShadow: activeFX
+              ? '0 0 10px rgba(239,68,68,0.7)'
+              : lastUsedFX
+              ? '0 0 10px rgba(0,245,160,0.6)'
+              : 'none',
+            border: `1px solid ${activeFX ? '#ef4444' : lastUsedFX ? '#00f5a0' : '#1e2130'}`,
+          }}
+        >
+          {activeFX ? '■ STOP FX' : '▶ RETRIGGER'}
+        </button>
+
+        <div className="grid grid-cols-4 gap-2 pt-7">
+          {fxPads.map(pad => (
+            <button
+              key={pad.id}
+              onMouseDown={() => {
+                setActiveFX(pad.id);
+                setLastUsedFX(pad.id);
+                onTriggerFX(pad.id, true);
+              }}
+              onMouseUp={() => {
                 setActiveFX(null);
                 onTriggerFX(pad.id, false);
-              }
-            }}
-            className={`h-12 rounded-lg text-[0.55rem] font-bold flex items-center justify-center text-center p-1 leading-tight transition-all active:scale-95 ${
-              activeFX === pad.id 
-                ? `${pad.color} text-black animate-pulse-glow` 
-                : 'bg-surface2 text-muted hover:text-text hover:border-muted/50 border border-transparent'
-            }`}
-          >
-            {pad.label}
-          </button>
-        ))}
+              }}
+              onMouseLeave={() => {
+                if (activeFX === pad.id) {
+                  setActiveFX(null);
+                  onTriggerFX(pad.id, false);
+                }
+              }}
+              className="h-12 rounded-lg text-[0.55rem] font-bold flex items-center justify-center text-center p-1 leading-tight transition-all active:scale-95"
+              style={{
+                backgroundColor: activeFX === pad.id ? pad.neon : `${pad.neon}18`,
+                color: activeFX === pad.id ? '#000' : pad.neon,
+                border: `1px solid ${activeFX === pad.id ? pad.neon : pad.neon + '50'}`,
+                boxShadow: activeFX === pad.id ? `0 0 14px ${pad.neon}90` : 'none',
+                textShadow: activeFX === pad.id ? 'none' : `0 0 6px ${pad.neon}80`,
+              }}
+            >
+              {pad.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Controls */}
