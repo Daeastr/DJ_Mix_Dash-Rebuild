@@ -1075,10 +1075,93 @@ function DJMixView({
   startAutoMix: () => void;
 }) {
   return (
-    <div className="flex-1 overflow-hidden flex flex-col">
-      {/* Global Progress & Controls */}
-      <div className="px-6 pt-6 flex flex-col items-center bg-surface2/30 shrink-0">
-        <div className="w-full max-w-4xl flex items-center gap-4">
+    <div className="flex-1 overflow-hidden grid grid-cols-[260px_1fr]">
+      {/* LEFT SIDEBAR: Library Browse + Track List */}
+      <aside className="border-r border-border bg-surface flex flex-col overflow-hidden">
+        <div className="px-4 py-3 border-b border-border shrink-0">
+          <div className="font-bebas text-lg tracking-[3px] text-[#00e5ff] drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]">LIBRARY</div>
+          <div className="text-[0.65rem] text-muted font-mono">{filteredSortedTracks.length} / {tracks.length} TRACKS</div>
+        </div>
+        <div className="p-3 flex flex-col gap-2 border-b border-border bg-surface2/40 shrink-0">
+          <div>
+            <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Sort By</label>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-accent outline-none">
+              <option value="bpm">BPM</option>
+              <option value="genre">Genre / Category</option>
+              <option value="producer">Producer / Artist</option>
+              <option value="newest">Newest Added</option>
+              <option value="oldest">Oldest Added</option>
+            </select>
+          </div>
+          <div>
+            <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Category / Genre</label>
+            <select value={filterGenre} onChange={e => setFilterGenre(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-[#00e5ff] outline-none">
+              {uniqueGenres.map(g => <option key={g} value={g}>{g === 'all' ? 'All Genres' : g}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Producer / Artist</label>
+            <select value={filterProducer} onChange={e => setFilterProducer(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-[#ffe600] outline-none">
+              {uniqueProducers.map(p => <option key={p} value={p}>{p === 'all' ? 'All Producers' : p}</option>)}
+            </select>
+          </div>
+          <button
+            onClick={() => { setSortBy('bpm'); setFilterGenre('all'); setFilterProducer('all'); }}
+            className="w-full py-1.5 rounded-lg text-[0.6rem] font-bold tracking-widest border border-[#00e5ff]/30 text-[#00e5ff]/60 hover:text-[#00e5ff] hover:border-[#00e5ff]/60 transition-colors"
+          >
+            RESET FILTERS
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {tracks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted opacity-30 px-4">
+              <Music className="w-8 h-8 mb-3" />
+              <p className="text-xs text-center">No tracks yet — switch to Producer view to upload</p>
+            </div>
+          ) : filteredSortedTracks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted opacity-30 px-4">
+              <Activity className="w-8 h-8 mb-3" />
+              <p className="text-xs text-center">No tracks match filters</p>
+            </div>
+          ) : (
+            filteredSortedTracks.map(track => (
+              <div
+                key={track.id}
+                draggable
+                onDragStart={(e) => e.dataTransfer.setData('trackId', track.id)}
+                className="flex items-center gap-2.5 px-3 py-2.5 border-b border-border/40 group hover:bg-surface2/60 cursor-grab active:cursor-grabbing transition-colors"
+              >
+                <div className="w-1.5 h-8 rounded-full shrink-0" style={{ backgroundColor: track.color }} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold truncate leading-tight">{track.name}</div>
+                  <div className="text-[0.6rem] text-muted font-mono mt-0.5">{track.bpm} BPM · {track.genre}</div>
+                  <div className="text-[0.55rem] text-[#ffe600]/60 font-mono truncate">{track.producer}</div>
+                </div>
+                <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <button
+                    onClick={() => onDropTrack(track.id, 'A')}
+                    className="px-1.5 py-0.5 rounded bg-bg border border-border text-[0.55rem] font-bold hover:text-accent hover:border-accent/60 transition-colors"
+                  >A</button>
+                  <button
+                    onClick={() => onDropTrack(track.id, 'B')}
+                    className="px-1.5 py-0.5 rounded bg-bg border border-border text-[0.55rem] font-bold hover:text-accent2 hover:border-accent2/60 transition-colors"
+                  >B</button>
+                  <button
+                    onClick={() => onAddToMix(track.id)}
+                    className={`px-1.5 py-0.5 rounded bg-bg border border-border text-[0.55rem] font-bold transition-colors ${mixQueue.includes(track.id) ? 'text-accent3 border-accent3/50' : 'text-muted hover:text-accent3'}`}
+                  >Q</button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
+
+      {/* RIGHT: Progress Bar + Deck Controls */}
+      <div className="flex flex-col overflow-hidden">
+        {/* Global Progress & Controls */}
+        <div className="px-6 pt-6 flex flex-col items-center bg-surface2/30 shrink-0">
+          <div className="w-full flex items-center gap-4">
           <button
             onClick={onPlayFullSong}
             className="px-4 py-2 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 rounded-xl text-[0.75rem] font-bold flex items-center gap-2 transition-all shrink-0 shadow-lg shadow-accent/5"
@@ -1118,7 +1201,8 @@ function DJMixView({
       </div>
 
       {/* Deck Area */}
-      <div className="p-6 grid grid-cols-[1fr_120px_1fr] gap-6 bg-surface2/30 border-b border-border shrink-0">
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="p-6 grid grid-cols-[1fr_120px_1fr] gap-6">
         <DeckUI
           deckKey="A"
           state={decks.A}
@@ -1187,89 +1271,8 @@ function DJMixView({
           onRandomizeStart={() => onRandomizeStart('B')}
           onTriggerFX={(fx, active) => onTriggerFX('B', fx, active)}
         />
-      </div>
-
-      {/* DJ Browser: Filter Sidebar + Track Grid */}
-      <div className="flex-1 overflow-hidden grid grid-cols-[220px_1fr]">
-        {/* Filter Sidebar */}
-        <aside className="border-r border-border bg-surface flex flex-col overflow-hidden">
-          <div className="p-4 border-b border-border">
-            <div className="font-bebas text-lg tracking-[3px] text-[#00e5ff] drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]">BROWSE</div>
-            <div className="text-[0.65rem] text-muted font-mono mt-0.5">{filteredSortedTracks.length} / {tracks.length} TRACKS</div>
-          </div>
-          <div className="p-3 flex flex-col gap-3 flex-1 overflow-y-auto custom-scrollbar">
-            <div>
-              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Sort By</label>
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-accent outline-none">
-                <option value="bpm">BPM</option>
-                <option value="genre">Genre / Category</option>
-                <option value="producer">Producer / Artist</option>
-                <option value="newest">Newest Added</option>
-                <option value="oldest">Oldest Added</option>
-              </select>
-            </div>
-            <div>
-              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Category / Genre</label>
-              <select value={filterGenre} onChange={e => setFilterGenre(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-[#00e5ff] outline-none">
-                {uniqueGenres.map(g => <option key={g} value={g}>{g === 'all' ? 'All Genres' : g}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Producer / Artist</label>
-              <select value={filterProducer} onChange={e => setFilterProducer(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-[#ffe600] outline-none">
-                {uniqueProducers.map(p => <option key={p} value={p}>{p === 'all' ? 'All Producers' : p}</option>)}
-              </select>
-            </div>
-            <button
-              onClick={() => { setSortBy('bpm'); setFilterGenre('all'); setFilterProducer('all'); }}
-              className="w-full py-1.5 rounded-lg text-[0.6rem] font-bold tracking-widest border border-[#00e5ff]/30 text-[#00e5ff]/60 hover:text-[#00e5ff] hover:border-[#00e5ff]/60 transition-colors"
-            >
-              RESET FILTERS
-            </button>
-          </div>
-        </aside>
-
-        {/* Track Grid */}
-        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-          {tracks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">
-              <Music className="w-12 h-12 mb-4" />
-              <p className="text-sm">No tracks in the library yet</p>
-              <p className="text-xs mt-1">Switch to Producer view to upload tracks</p>
-            </div>
-          ) : filteredSortedTracks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">
-              <Activity className="w-12 h-12 mb-4" />
-              <p className="text-sm">No tracks match your filters</p>
-            </div>
-          ) : (
-            <div>
-              <div className="flex items-center gap-3 mb-6">
-                <span className="font-bebas text-lg tracking-[2px] text-[#00e5ff]/60">{filteredSortedTracks.length} TRACK{filteredSortedTracks.length !== 1 ? 'S' : ''}</span>
-                {(filterGenre !== 'all' || filterProducer !== 'all') && (
-                  <span className="text-[0.6rem] font-mono text-muted bg-surface border border-border rounded-full px-2 py-0.5">FILTERED</span>
-                )}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {filteredSortedTracks.map(track => (
-                  <div key={track.id} className="bg-surface border border-border rounded-xl p-4 flex items-center gap-4 group hover:border-[#00e5ff]/30 transition-colors">
-                    <div className="w-12 h-12 rounded-lg flex items-center justify-center text-2xl shadow-md shrink-0" style={{ backgroundColor: track.color }}>🎵</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold truncate text-sm">{track.name}</div>
-                      <div className="text-xs text-muted font-mono mt-0.5">{track.bpm} BPM · {track.genre}</div>
-                      <div className="text-[0.6rem] text-[#ffe600]/60 font-mono mt-0.5 truncate">{track.producer}</div>
-                    </div>
-                    <div className="flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                      <button onClick={() => onDropTrack(track.id, 'A')} className="px-2.5 py-1 rounded bg-bg border border-border text-[0.6rem] font-bold hover:text-accent hover:border-accent transition-colors">DECK A</button>
-                      <button onClick={() => onDropTrack(track.id, 'B')} className="px-2.5 py-1 rounded bg-bg border border-border text-[0.6rem] font-bold hover:text-accent2 hover:border-accent2 transition-colors">DECK B</button>
-                      <button onClick={() => onAddToMix(track.id)} className={`px-2.5 py-1 rounded bg-bg border border-border text-[0.6rem] font-bold transition-colors ${mixQueue.includes(track.id) ? 'text-accent3 border-accent3/50' : 'text-muted hover:text-accent3'}`}>QUEUE</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
+      </div>
       </div>
     </div>
   );
