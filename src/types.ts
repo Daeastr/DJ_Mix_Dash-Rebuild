@@ -40,3 +40,28 @@ export interface DJState {
   crossfade: number; // -1 (Deck A) to 1 (Deck B)
   activeTab: 'songs' | 'mix' | 'fx';
 }
+
+export type UserTier = 'free' | 'pro' | 'hybrid';
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  djName: string;
+  tier: UserTier;
+  createdAt: number;
+}
+
+export interface SharedTrack {
+  id: string;
+  name: string;
+  bpm: number;
+  genre: Genre;
+  producer: string;
+  duration: number;
+  storageUrl: string;
+  uploadedBy: string;      // uid
+  uploaderName: string;     // djName
+  uploadedAt: number;
+  downloadCount: number;
+  fileSize: number;
+}
