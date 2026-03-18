@@ -6,3 +6,5 @@ dist/
 .vscode/
 dj-mix-dash-zip-extracted/
 DJ_Mix_Dash/
+.vercel
+.env*.local

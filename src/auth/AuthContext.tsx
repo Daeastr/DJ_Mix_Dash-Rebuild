@@ -1,17 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-  User,
-} from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { auth, db, firebaseConfigured } from '../firebase';
 import { UserProfile, UserTier } from '../types';
 
+interface AuthUser {
+  uid: string;
+  email: string;
+}
+
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   profile: UserProfile | null;
   loading: boolean;
   firebaseReady: boolean;
@@ -23,6 +19,29 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function createAuthError(code: string, message: string) {
+  const error = new Error(message) as Error & { code: string };
+  error.code = code;
+  return error;
+}
+
+function makeUser(profile: UserProfile): AuthUser {
+  return { uid: profile.uid, email: profile.email };
+}
+
+async function parseAuthResponse(response: Response) {
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw createAuthError(payload?.code || 'auth/unknown', payload?.error || 'Authentication failed');
+  }
+
+  const resolvedProfile = payload?.profile as UserProfile | undefined;
+  return {
+    user: resolvedProfile ? makeUser(resolvedProfile) : null,
+    profile: resolvedProfile ?? null,
+  };
+}
+
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
@@ -30,60 +49,86 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(firebaseConfigured);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!auth) return;
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser && db) {
-        const profileDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (profileDoc.exists()) {
-          setProfile(profileDoc.data() as UserProfile);
+    let cancelled = false;
+
+    const hydrate = async () => {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.status === 401) {
+          if (!cancelled) {
+            setUser(null);
+            setProfile(null);
+          }
+        } else {
+          const session = await parseAuthResponse(response);
+          if (!cancelled) {
+            setUser(session.user);
+            setProfile(session.profile);
+          }
         }
-      } else {
-        setProfile(null);
+      } catch {
+        if (!cancelled) {
+          setUser(null);
+          setProfile(null);
+        }
       }
+
       setLoading(false);
-    });
-    return unsubscribe;
+    };
+
+    hydrate();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const signUp = useCallback(async (email: string, password: string, djName: string, tier: UserTier) => {
-    if (!auth || !db) throw new Error('Firebase not configured');
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    const newProfile: UserProfile = {
-      uid: cred.user.uid,
-      email,
-      djName,
-      tier,
-      createdAt: Date.now(),
-    };
-    await setDoc(doc(db, 'users', cred.user.uid), newProfile);
-    setProfile(newProfile);
+    const session = await parseAuthResponse(await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, djName, tier }),
+    }));
+    setUser(session.user);
+    setProfile(session.profile);
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    if (!auth) throw new Error('Firebase not configured');
-    await signInWithEmailAndPassword(auth, email, password);
+    const session = await parseAuthResponse(await fetch('/api/auth/signin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    }));
+    setUser(session.user);
+    setProfile(session.profile);
   }, []);
 
   const signOut = useCallback(async () => {
-    if (!auth) return;
-    await firebaseSignOut(auth);
+    await fetch('/api/auth/signout', { method: 'POST' });
+    setUser(null);
     setProfile(null);
   }, []);
 
   const updateTier = useCallback(async (tier: UserTier) => {
-    if (!user || !db) return;
-    await setDoc(doc(db, 'users', user.uid), { tier }, { merge: true });
-    setProfile(prev => prev ? { ...prev, tier } : null);
+    if (!user) return;
+
+    const session = await parseAuthResponse(await fetch('/api/auth/me', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier }),
+    }));
+
+    setUser(session.user);
+    setProfile(session.profile);
   }, [user]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, firebaseReady: firebaseConfigured, signUp, signIn, signOut, updateTier }}>
+    <AuthContext.Provider value={{ user, profile, loading, firebaseReady: true, signUp, signIn, signOut, updateTier }}>
       {children}
     </AuthContext.Provider>
   );

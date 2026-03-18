@@ -37,8 +37,8 @@ export default function AuthPage() {
 
   const tiers: { value: UserTier; label: string; desc: string; color: string }[] = [
     { value: 'free', label: 'FREE DJ', desc: 'Quick mixes up to 10s', color: '#00f5a0' },
-    { value: 'pro', label: 'PRO DJ', desc: 'Extended drops up to 30s', color: '#00e5ff' },
-    { value: 'hybrid', label: 'HYBRID DJ', desc: 'Full access + upload & share', color: '#bf00ff' },
+    { value: 'pro', label: 'PRO DJ', desc: 'Extended drops + producer uploads', color: '#00e5ff' },
+    { value: 'hybrid', label: 'HYBRID DJ', desc: 'Producer uploads + community sharing', color: '#bf00ff' },
   ];
 
   return (
@@ -183,7 +183,7 @@ export default function AuthPage() {
 
         {/* Footer */}
         <div className="text-center mt-6 font-mono text-[0.6rem] text-muted/50 tracking-widest">
-          POWERED BY FIRE · DJ MIX DASH v1.0
+          POWERED BY VERCEL BLOB · DJ MIX DASH v1.0
         </div>
       </div>
     </div>

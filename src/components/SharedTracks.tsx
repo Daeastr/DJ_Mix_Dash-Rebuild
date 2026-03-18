@@ -1,10 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { upload } from '@vercel/blob/client';
 import { Upload, Download, Music, Search, Loader2, Trash2 } from 'lucide-react';
-import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, increment, query, orderBy } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
-import { db, storage } from '../firebase';
 import { useAuth } from '../auth/AuthContext';
 import { SharedTrack, Genre } from '../types';
+
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || 'Request failed');
+  }
+
+  return response.json() as Promise<T>;
+}
 
 export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: string, name: string) => void }) {
   const { profile } = useAuth();
@@ -19,11 +26,8 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
   const isHybrid = profile?.tier === 'hybrid';
 
   const fetchSharedTracks = useCallback(async () => {
-    if (!db) { setLoading(false); return; }
     try {
-      const q = query(collection(db, 'sharedTracks'), orderBy('uploadedAt', 'desc'));
-      const snapshot = await getDocs(q);
-      const tracks = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as SharedTrack));
+      const tracks = await parseJsonResponse<SharedTrack[]>(await fetch('/api/tracks'));
       setSharedTracks(tracks);
     } catch (err) {
       console.error('Failed to fetch shared tracks:', err);
@@ -35,7 +39,7 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !profile || !storage || !db) return;
+    if (!file || !profile) return;
     if (!file.type.startsWith('audio/')) {
       setError('Only audio files are allowed');
       return;
@@ -52,42 +56,39 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
 
     try {
       const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `sharedTracks/${profile.uid}/${Date.now()}_${sanitizedName}`;
-      const storageRef = ref(storage, storagePath);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-
-      await new Promise<void>((resolve, reject) => {
-        uploadTask.on(
-          'state_changed',
-          (snap) => setUploadProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-          reject,
-          async () => {
-            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-            const producer = file.name.includes(' - ')
-              ? file.name.split(' - ')[0].trim()
-              : profile.djName;
-            const trackName = file.name.replace(/\.[^/.]+$/, '');
-
-            const trackData: Omit<SharedTrack, 'id'> = {
-              name: trackName,
-              bpm: 0,
-              genre: 'Unknown' as Genre,
-              producer,
-              duration: 0,
-              storageUrl: downloadUrl,
-              uploadedBy: profile.uid,
-              uploaderName: profile.djName,
-              uploadedAt: Date.now(),
-              downloadCount: 0,
-              fileSize: file.size,
-            };
-
-            await addDoc(collection(db, 'sharedTracks'), trackData);
-            await fetchSharedTracks();
-            resolve();
+      const pathname = `sharedTracks/${profile.uid}/${Date.now()}_${sanitizedName}`;
+      const blob = await upload(pathname, file, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
+        onUploadProgress: event => {
+          if (event.total) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
           }
-        );
+        },
       });
+
+      const producer = file.name.includes(' - ')
+        ? file.name.split(' - ')[0].trim()
+        : profile.djName;
+      const trackName = file.name.replace(/\.[^/.]+$/, '');
+
+      const trackData = {
+        name: trackName,
+        bpm: 0,
+        genre: 'Unknown' as Genre,
+        producer,
+        duration: 0,
+        storageUrl: blob.url,
+        fileSize: file.size,
+      };
+
+      await parseJsonResponse<SharedTrack>(await fetch('/api/tracks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(trackData),
+      }));
+
+      await fetchSharedTracks();
     } catch (err: any) {
       setError(err?.message || 'Upload failed');
     }
@@ -96,16 +97,11 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
   };
 
   const handleDelete = async (track: SharedTrack) => {
-    if (track.uploadedBy !== profile?.uid || !storage || !db) return;
+    if (track.uploadedBy !== profile?.uid) return;
     try {
-      // Extract path from URL to delete from storage
-      const urlObj = new URL(track.storageUrl);
-      const encodedPath = urlObj.pathname.split('/o/')[1]?.split('?')[0];
-      if (encodedPath) {
-        const storagePath = decodeURIComponent(encodedPath);
-        await deleteObject(ref(storage, storagePath));
-      }
-      await deleteDoc(doc(db, 'sharedTracks', track.id));
+      await parseJsonResponse<{ success: boolean }>(await fetch(`/api/tracks/${track.id}`, {
+        method: 'DELETE',
+      }));
       setSharedTracks(prev => prev.filter(t => t.id !== track.id));
     } catch (err) {
       console.error('Delete failed:', err);
@@ -113,14 +109,14 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
   };
 
   const handleDownload = async (track: SharedTrack) => {
-    if (!db) return;
-    try {
-      await updateDoc(doc(db, 'sharedTracks', track.id), { downloadCount: increment(1) });
-      onLoadTrack(track.storageUrl, track.name);
-      setSharedTracks(prev => prev.map(t => t.id === track.id ? { ...t, downloadCount: t.downloadCount + 1 } : t));
-    } catch (err) {
-      console.error('Failed to load track:', err);
-    }
+    // Load the track immediately; increment stats in the background
+    onLoadTrack(track.storageUrl, track.name);
+    setSharedTracks(prev => prev.map(t => t.id === track.id ? { ...t, downloadCount: t.downloadCount + 1 } : t));
+    fetch(`/api/tracks/${track.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'incrementDownload' }),
+    }).catch(err => console.error('Failed to increment download count:', err));
   };
 
   const formatSize = (bytes: number) => {

@@ -1,4 +1,5 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { upload } from '@vercel/blob/client';
 import { 
   Music, 
   Play, 
@@ -17,10 +18,14 @@ import {
   Mic2,
   LogOut,
   Users,
-  Crown
+  Crown,
+  Check,
+  Cloud,
+  LoaderCircle,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Track, DeckState, UserTier } from './types';
+import { Track, DeckState, ProducerLibraryTrack, SharedTrack, UserTier } from './types';
 import { analyzeAudio, formatTime } from './utils/audio';
 import { DJEngine } from './utils/engine';
 import { useAuth } from './auth/AuthContext';
@@ -44,15 +49,18 @@ const initialDeckState: DeckState = {
   startOffset: 0
 };
 
-export default function App() {
-  const { user, profile, loading: authLoading, signOut, firebaseReady } = useAuth();
-
-  // If Firebase isn't configured, skip auth and run the app directly
-  if (!firebaseReady) {
-    return <AppMain profile={null} signOut={async () => {}} />;
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || 'Request failed');
   }
 
-  // Auth gate — show auth page if not signed in
+  return response.json() as Promise<T>;
+}
+
+export default function App() {
+  const { user, profile, loading: authLoading, signOut } = useAuth();
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-bg flex items-center justify-center">
@@ -69,6 +77,7 @@ export default function App() {
 
 function AppMain({ profile, signOut }: { profile: import('./types').UserProfile | null; signOut: () => Promise<void> }) {
   const userTier = profile?.tier ?? 'hybrid';
+  const canUseProducerTools = userTier === 'hybrid';
   const tierIntervals = TIER_INTERVALS[userTier];
 
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -93,6 +102,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
   const [sortBy, setSortBy] = useState<'bpm' | 'genre' | 'producer' | 'newest' | 'oldest'>('bpm');
   const [filterGenre, setFilterGenre] = useState('all');
   const [filterProducer, setFilterProducer] = useState('all');
+  const [trackPersistenceState, setTrackPersistenceState] = useState<Record<string, 'saving' | 'saved' | 'deleting'>>({});
 
   const engineRef = useRef<DJEngine | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -123,6 +133,96 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
       engineRef.current.deckB.fxIntensity = fxIntensity;
     }
   }, [fxIntensity]);
+
+  const restoreLibraryTrack = useCallback(async (savedTrack: ProducerLibraryTrack) => {
+    if (!engineRef.current) {
+      throw new Error('Engine not initialized');
+    }
+
+    const response = await fetch(savedTrack.storageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${savedTrack.name}`);
+    }
+
+    const blob = await response.blob();
+    const file = new File([blob], `${savedTrack.name}.mp3`, { type: blob.type || 'audio/mpeg' });
+    const localUrl = URL.createObjectURL(blob);
+    const analysis = await analyzeAudio(file, engineRef.current.context);
+
+    return {
+      id: savedTrack.id,
+      name: savedTrack.name,
+      file,
+      url: localUrl,
+      storageUrl: savedTrack.storageUrl,
+      duration: savedTrack.duration || analysis.duration,
+      bpm: savedTrack.bpm || analysis.bpm,
+      genre: savedTrack.genre || analysis.genre,
+      producer: savedTrack.producer,
+      addedAt: savedTrack.uploadedAt,
+      color: `hsl(${Math.random() * 360}, 70%, 60%)`,
+      audioBuffer: analysis.audioBuffer,
+    } satisfies Track;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTracks = async () => {
+      if (!profile || !engineRef.current) return;
+
+      if (canUseProducerTools) {
+        // Hybrid: load personal producer library
+        try {
+          const savedTracks = await parseJsonResponse<ProducerLibraryTrack[]>(await fetch('/api/library'));
+          const restoredTracks: Track[] = [];
+
+          for (const savedTrack of savedTracks) {
+            try {
+              restoredTracks.push(await restoreLibraryTrack(savedTrack));
+            } catch (error) {
+              console.error('Failed to restore saved producer track:', error);
+            }
+          }
+
+          if (!cancelled) {
+            setTracks(restoredTracks.sort((left, right) => right.addedAt - left.addedAt));
+            setTrackPersistenceState(
+              Object.fromEntries(restoredTracks.map(track => [track.id, 'saved'])) as Record<string, 'saved'>
+            );
+          }
+        } catch (error) {
+          console.error('Failed to load producer library:', error);
+        }
+      } else {
+        // Free / Pro DJ: populate the mix library from community tracks
+        try {
+          const communityTracks = await parseJsonResponse<SharedTrack[]>(await fetch('/api/tracks'));
+          const restoredTracks: Track[] = [];
+
+          for (const t of communityTracks) {
+            try {
+              restoredTracks.push(await restoreLibraryTrack(t));
+            } catch (error) {
+              console.error('Failed to load community track:', error);
+            }
+          }
+
+          if (!cancelled) {
+            setTracks(restoredTracks);
+          }
+        } catch (error) {
+          console.error('Failed to load community tracks:', error);
+        }
+      }
+    };
+
+    loadTracks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.uid, canUseProducerTools, restoreLibraryTrack, profile]);
 
   // Initialize Engine
   useEffect(() => {
@@ -158,7 +258,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
 
     for (const file of filesArray) {
       if (!file.type.startsWith('audio/')) continue;
-      const id = Math.random().toString(36).substring(7);
+      const id = crypto.randomUUID();
       const url = URL.createObjectURL(file);
       
       const producer = file.name.includes(' - ')
@@ -178,18 +278,138 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
       };
 
       setTracks(prev => [...prev, tempTrack]);
+      if (profile && canUseProducerTools) {
+        setTrackPersistenceState(prev => ({ ...prev, [id]: 'saving' }));
+      }
 
       try {
         if (!engineRef.current) throw new Error("Engine not initialized");
         const analysis = await analyzeAudio(file, engineRef.current.context);
         setTracks(prev => prev.map(t => t.id === id ? { ...t, ...analysis } : t));
+
+        if (profile && canUseProducerTools) {
+          try {
+            const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const blob = await upload(`library/${profile.uid}/${Date.now()}_${sanitizedName}`, file, {
+              access: 'public',
+              handleUploadUrl: '/api/upload',
+            });
+
+            const savedTrack = await parseJsonResponse<ProducerLibraryTrack>(await fetch('/api/library', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: tempTrack.name,
+                bpm: analysis.bpm,
+                genre: analysis.genre,
+                producer,
+                duration: analysis.duration,
+                storageUrl: blob.url,
+                fileSize: file.size,
+                uploadedAt: tempTrack.addedAt,
+              }),
+            }));
+
+            setTracks(prev => prev.map(track =>
+              track.id === id
+                ? {
+                    ...track,
+                    id: savedTrack.id,
+                    addedAt: savedTrack.uploadedAt,
+                    name: savedTrack.name,
+                    producer: savedTrack.producer,
+                    storageUrl: savedTrack.storageUrl,
+                  }
+                : track
+            ));
+            setTrackPersistenceState(prev => {
+              const next = { ...prev };
+              delete next[id];
+              next[savedTrack.id] = 'saved';
+              return next;
+            });
+            showToast(`Saved "${tempTrack.name}" to your producer library`);
+          } catch (saveError) {
+            console.error('Failed to save producer track:', saveError);
+            setTrackPersistenceState(prev => {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            });
+            showToast(`"${tempTrack.name}" loaded locally but did not save`, 'error');
+          }
+        }
       } catch (err) {
         console.error("Audio analysis failed:", err);
         showToast(`Failed to analyze ${file.name}`, 'error');
+        setTrackPersistenceState(prev => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         setTracks(prev => prev.map(t => t.id === id ? { ...t, bpm: 120, genre: 'Electronic' } : t));
       }
     }
   };
+
+  const deleteProducerTrack = useCallback(async (trackId: string) => {
+    const track = tracksRef.current.find(candidate => candidate.id === trackId);
+    if (!track?.storageUrl) {
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(`Delete "${track.name}" from your producer library?`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setTrackPersistenceState(prev => ({ ...prev, [trackId]: 'deleting' }));
+
+    try {
+      await parseJsonResponse<{ success: boolean; id: string }>(await fetch(`/api/library/${trackId}`, {
+        method: 'DELETE',
+      }));
+
+      if (decksRef.current.A.trackId === trackId) {
+        engineRef.current?.deckA.stop();
+      }
+      if (decksRef.current.B.trackId === trackId) {
+        engineRef.current?.deckB.stop();
+      }
+
+      if (track.url.startsWith('blob:')) {
+        URL.revokeObjectURL(track.url);
+      }
+
+      setTracks(prev => prev.filter(candidate => candidate.id !== trackId));
+      setMixQueue(prev => prev.filter(candidate => candidate !== trackId));
+      setDecks(prev => ({
+        A: prev.A.trackId === trackId ? { ...prev.A, trackId: null, isPlaying: false, currentTime: 0, startOffset: 0 } : prev.A,
+        B: prev.B.trackId === trackId ? { ...prev.B, trackId: null, isPlaying: false, currentTime: 0, startOffset: 0 } : prev.B,
+      }));
+      setTrackPersistenceState(prev => {
+        const next = { ...prev };
+        delete next[trackId];
+        return next;
+      });
+      showToast(`Removed "${track.name}" from your producer library`);
+    } catch (error) {
+      console.error('Failed to delete producer track:', error);
+      setTrackPersistenceState(prev => ({ ...prev, [trackId]: 'saved' }));
+      showToast(`Failed to remove "${track.name}"`, 'error');
+    }
+  }, [showToast]);
+
+  const getTrackPersistence = useCallback((track: Track) => {
+    const state = trackPersistenceState[track.id];
+    return {
+      isSaving: state === 'saving',
+      isDeleting: state === 'deleting',
+      isSaved: Boolean(track.storageUrl) || state === 'saved',
+    };
+  }, [trackPersistenceState]);
 
   const loadSharedTrack = useCallback(async (url: string, name: string) => {
     showToast(`Loading "${name}" from community...`);
@@ -697,7 +917,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
           <div className="stat-pill">MIX QUEUE <span className="val">{mixQueue.length}</span></div>
           {/* View Mode Toggle */}
           <div className="flex bg-surface border border-border rounded-xl p-1 gap-0.5 ml-2">
-            {userTier === 'hybrid' && (
+            {canUseProducerTools && (
               <button
                 onClick={() => setViewMode('producer')}
                 className={`px-4 py-1.5 rounded-lg text-[0.7rem] font-bold tracking-widest transition-all flex items-center gap-1.5 ${
@@ -796,12 +1016,20 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
                 onDragStart={(e) => e.dataTransfer.setData('trackId', track.id)}
                 className="flex items-center p-2 gap-3 rounded-lg hover:bg-white/5 group transition-all cursor-grab active:cursor-grabbing"
               >
+                {(() => {
+                  const persistence = getTrackPersistence(track);
+                  return (
+                    <>
                 <div className="w-8 h-8 rounded bg-surface2 flex items-center justify-center text-xs font-bold shrink-0" style={{ color: track.color }}>
                   {track.genre[0]}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[0.8rem] font-medium truncate">{track.name}</div>
-                  <div className="text-[0.65rem] text-muted font-mono">{track.bpm} BPM</div>
+                  <div className="flex items-center gap-2 text-[0.65rem] text-muted font-mono">
+                    <span>{track.bpm} BPM</span>
+                    {persistence.isSaving && <span className="text-accent inline-flex items-center gap-1"><LoaderCircle className="w-3 h-3 animate-spin" /> SAVING</span>}
+                    {!persistence.isSaving && persistence.isSaved && <span className="text-accent inline-flex items-center gap-1"><Check className="w-3 h-3" /> SAVED</span>}
+                  </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button onClick={() => loadToDeck(track.id, 'A')} className="p-1 hover:text-accent" title="Load to Deck A">A</button>
@@ -809,7 +1037,20 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
                   <button onClick={() => addToMix(track.id)} className={`p-1 ${mixQueue.includes(track.id) ? 'text-accent3' : 'text-muted'}`}>
                     <Plus className="w-4 h-4" />
                   </button>
+                  {persistence.isSaved && (
+                    <button
+                      onClick={() => void deleteProducerTrack(track.id)}
+                      disabled={persistence.isDeleting}
+                      className="p-1 text-muted hover:text-red disabled:opacity-50"
+                      title="Remove from saved library"
+                    >
+                      {persistence.isDeleting ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    </button>
+                  )}
                 </div>
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>
@@ -1023,16 +1264,37 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                           {group.tracks.map(track => (
                             <div key={track.id} className="bg-surface border border-border rounded-xl p-4 flex items-center gap-4 group hover:border-accent/50 transition-colors">
+                              {(() => {
+                                const persistence = getTrackPersistence(track);
+                                return (
+                                  <>
                               <div className="w-12 h-12 rounded-lg flex items-center justify-center text-2xl shadow-md" style={{ backgroundColor: track.color }}>🎵</div>
                               <div className="flex-1 min-w-0">
-                                <div className="font-semibold truncate">{track.name}</div>
+                                <div className="flex items-center gap-2">
+                                  <div className="font-semibold truncate">{track.name}</div>
+                                  {persistence.isSaving && <span className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[0.55rem] font-mono text-accent"><LoaderCircle className="w-3 h-3 animate-spin" /> SAVING</span>}
+                                  {!persistence.isSaving && persistence.isSaved && <span className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[0.55rem] font-mono text-accent"><Cloud className="w-3 h-3" /> SAVED</span>}
+                                </div>
                                 <div className="text-xs text-muted font-mono mt-1">{track.bpm} BPM · {track.genre}</div>
                                 <div className="text-[0.6rem] text-[#ffe600]/60 font-mono mt-0.5 truncate">{track.producer}</div>
                               </div>
                               <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button onClick={() => loadToDeck(track.id, 'A')} className="px-3 py-1.5 rounded bg-bg border border-border text-[0.6rem] font-bold hover:text-accent hover:border-accent transition-colors">DECK A</button>
                                 <button onClick={() => loadToDeck(track.id, 'B')} className="px-3 py-1.5 rounded bg-bg border border-border text-[0.6rem] font-bold hover:text-accent2 hover:border-accent2 transition-colors">DECK B</button>
+                                {persistence.isSaved && (
+                                  <button
+                                    onClick={() => void deleteProducerTrack(track.id)}
+                                    disabled={persistence.isDeleting}
+                                    className="px-3 py-1.5 rounded bg-bg border border-border text-[0.6rem] font-bold text-muted hover:text-red hover:border-red disabled:opacity-50 transition-colors inline-flex items-center gap-1"
+                                  >
+                                    {persistence.isDeleting ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                    DELETE
+                                  </button>
+                                )}
                               </div>
+                                  </>
+                                );
+                              })()}
                             </div>
                           ))}
                         </div>
@@ -1102,6 +1364,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
           setDecks={setDecks}
           startAutoMix={startAutoMix}
           tierIntervals={tierIntervals}
+          isHybrid={canUseProducerTools}
         />
       ) : (
         <SharedTracks onLoadTrack={loadSharedTrack} />
@@ -1172,6 +1435,7 @@ function DJMixView({
   setDecks: React.Dispatch<React.SetStateAction<{ A: DeckState; B: DeckState }>>;
   startAutoMix: () => void;
   tierIntervals: number[];
+  isHybrid: boolean;
 }) {
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
@@ -1333,8 +1597,8 @@ function DJMixView({
           {tracks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">
               <Music className="w-12 h-12 mb-4" />
-              <p className="text-sm">No tracks in the library yet</p>
-              <p className="text-xs mt-1">Switch to Producer view to upload tracks</p>
+              <p className="text-sm">No tracks available yet</p>
+              <p className="text-xs mt-1">{isHybrid ? 'Switch to Producer view to upload tracks' : 'Check back later or browse the Community tab'}</p>
             </div>
           ) : filteredSortedTracks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">

@@ -5,6 +5,7 @@ export interface Track {
   name: string;
   file: File;
   url: string;
+  storageUrl?: string;
   duration: number;
   bpm: number | 'Analyzing...';
   genre: Genre;
@@ -64,4 +65,16 @@ export interface SharedTrack {
   uploadedAt: number;
   downloadCount: number;
   fileSize: number;
+}
+
+export interface ProducerLibraryTrack {
+  id: string;
+  name: string;
+  bpm: number;
+  genre: Genre;
+  producer: string;
+  duration: number;
+  storageUrl: string;
+  fileSize: number;
+  uploadedAt: number;
 }
