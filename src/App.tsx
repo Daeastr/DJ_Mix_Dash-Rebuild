@@ -1393,7 +1393,7 @@ function DJMixView({
   uniqueGenres, uniqueProducers, sortBy, setSortBy, filterGenre, setFilterGenre,
   filterProducer, setFilterProducer, onTogglePlay, onEQChange, onFilterChange,
   onTempoChange, onDropTrack, onRandomizeStart, onTriggerFX, onPlayFullSong,
-  onAddToMix, setDecks, startAutoMix, tierIntervals,
+  onAddToMix, setDecks, startAutoMix, tierIntervals, isHybrid,
 }: {
   decks: { A: DeckState; B: DeckState };
   tracks: Track[];
