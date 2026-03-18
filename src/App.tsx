@@ -185,7 +185,11 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
     let cancelled = false;
 
     const loadTracks = async () => {
-      if (!profile || !engineRef.current) return;
+      if (!profile) return;
+      // Note: engineRef.current is intentionally NOT checked here.
+      // This effect fires before the engine-init effect (React runs effects in definition order),
+      // so engineRef.current is null at the guard but will be set by the time any awaited
+      // network call in restoreLibraryTrack actually executes.
 
       if (canUseProducerTools) {
         // Hybrid: load personal producer library (full audio — needed to re-play own uploads)
