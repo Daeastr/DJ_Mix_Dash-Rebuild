@@ -37,10 +37,31 @@ export default function AuthPage() {
     setLoading(false);
   };
 
-  const tiers: { value: UserTier; label: string; desc: string; color: string }[] = [
-    { value: 'free', label: 'FREE DJ', desc: 'Quick mixes up to 10s', color: '#00f5a0' },
-    { value: 'pro', label: 'PRO DJ', desc: 'Extended drops + producer uploads', color: '#00e5ff' },
-    { value: 'hybrid', label: 'HYBRID DJ', desc: 'Producer uploads + community sharing', color: '#bf00ff' },
+  const tiers: { value: UserTier; label: string; tagline: string; features: string[]; badge: string; color: string }[] = [
+    {
+      value: 'free',
+      label: 'FREE DJ',
+      tagline: '10s max clip play · no upload',
+      features: ['10 second playback limit', 'No track upload', 'Basic EQ & filters'],
+      badge: 'STARTER',
+      color: '#00f5a0',
+    },
+    {
+      value: 'pro',
+      label: 'PRO DJ',
+      tagline: '30s max clip play · no upload',
+      features: ['30 second playback limit', 'No track upload', 'Full EQ & effects'],
+      badge: 'POPULAR',
+      color: '#00e5ff',
+    },
+    {
+      value: 'hybrid',
+      label: 'HYBRID DJ',
+      tagline: '60s clip + upload & save tracks',
+      features: ['60 second playback limit', 'Upload & save tracks', 'Community sharing'],
+      badge: 'FULL ACCESS',
+      color: '#bf00ff',
+    },
   ];
 
   const hybridRoles: { value: HybridRole; label: string; desc: string }[] = [
@@ -68,6 +89,77 @@ export default function AuthPage() {
           <p className="font-mono text-[0.7rem] text-muted mt-1 tracking-widest">
             {mode === 'signin' ? 'WELCOME BACK' : 'JOIN THE BOOTH'}
           </p>
+        </div>
+
+        {/* ── Tier Showcase ── */}
+        <div className="mb-6">
+          <p className="text-center font-bebas text-2xl tracking-[4px] text-text mb-1">
+            WHAT DJ DO YOU WANT TO BE TODAY?
+          </p>
+          <p className="text-center font-mono text-[0.6rem] text-muted/60 tracking-widest mb-4">
+            CHOOSE YOUR STYLE · YOUR RULES
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {tiers.map(t => {
+              const isSelected = mode === 'signup' && tier === t.value;
+              return (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => { if (mode === 'signup') setTier(t.value); }}
+                  className={`relative flex flex-col items-center rounded-2xl border p-3 text-center transition-all ${
+                    mode === 'signup' ? 'cursor-pointer hover:scale-[1.03]' : 'cursor-default'
+                  }`}
+                  style={{
+                    borderColor: isSelected ? t.color : 'var(--color-border)',
+                    backgroundColor: isSelected ? `${t.color}18` : 'var(--color-surface)',
+                    boxShadow: isSelected ? `0 0 24px ${t.color}40` : 'none',
+                  }}
+                >
+                  {/* Badge */}
+                  <span
+                    className="mb-2 rounded-full px-2 py-0.5 font-mono text-[0.45rem] font-bold tracking-widest"
+                    style={{ backgroundColor: `${t.color}20`, color: t.color }}
+                  >
+                    {t.badge}
+                  </span>
+
+                  {/* Label */}
+                  <span className="font-bebas text-lg tracking-[2px] leading-none" style={{ color: t.color }}>
+                    {t.label}
+                  </span>
+
+                  {/* Tagline */}
+                  <span className="font-mono text-[0.5rem] text-muted/80 mt-1 leading-tight">{t.tagline}</span>
+
+                  {/* Feature list */}
+                  <ul className="mt-2 w-full space-y-0.5">
+                    {t.features.map(f => (
+                      <li key={f} className="flex items-start gap-1 text-left">
+                        <span className="mt-0.5 text-[0.55rem] shrink-0" style={{ color: t.color }}>▸</span>
+                        <span className="font-mono text-[0.5rem] text-muted/70 leading-tight">{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {/* Selected indicator */}
+                  {isSelected && (
+                    <span
+                      className="absolute top-2 right-2 text-[0.55rem] font-bold"
+                      style={{ color: t.color }}
+                    >
+                      ✓
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {mode === 'signup' && (
+            <p className="text-center font-mono text-[0.55rem] text-muted/50 mt-2 tracking-wider">
+              TAP A CARD TO SELECT YOUR TIER
+            </p>
+          )}
         </div>
 
         {/* Form */}
@@ -135,27 +227,23 @@ export default function AuthPage() {
             />
           </div>
 
-          {/* Tier Selection (signup only) */}
+          {/* Tier Selection (signup only) — compact reminder row */}
           {mode === 'signup' && (
             <div className="space-y-2">
-              <div className="font-mono text-[0.6rem] text-muted tracking-widest uppercase">SELECT YOUR TIER</div>
-              <div className="grid grid-cols-3 gap-2">
-                {tiers.map(t => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    onClick={() => setTier(t.value)}
-                    className="relative p-3 rounded-xl border text-center transition-all"
-                    style={{
-                      borderColor: tier === t.value ? t.color : 'var(--color-border)',
-                      backgroundColor: tier === t.value ? `${t.color}15` : 'transparent',
-                      boxShadow: tier === t.value ? `0 0 20px ${t.color}30` : 'none',
-                    }}
-                  >
-                    <div className="font-bold text-[0.65rem] tracking-wider" style={{ color: t.color }}>{t.label}</div>
-                    <div className="text-[0.5rem] text-muted mt-1 leading-tight">{t.desc}</div>
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="font-mono text-[0.6rem] text-muted tracking-widest uppercase">SELECTED TIER</div>
+                <div
+                  className="font-bebas text-sm tracking-widest px-2 py-0.5 rounded-full"
+                  style={{
+                    color: tiers.find(t => t.value === tier)?.color,
+                    backgroundColor: `${tiers.find(t => t.value === tier)?.color}20`,
+                  }}
+                >
+                  {tiers.find(t => t.value === tier)?.label}
+                </div>
+                <span className="font-mono text-[0.5rem] text-muted/60">
+                  {tiers.find(t => t.value === tier)?.tagline}
+                </span>
               </div>
 
               {/* Hybrid Role Selection */}
