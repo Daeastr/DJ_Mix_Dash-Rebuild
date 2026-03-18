@@ -23,7 +23,7 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isHybrid = profile?.tier === 'hybrid';
+  const isProducer = profile?.tier === 'hybrid' && profile?.hybridRole === 'producer';
 
   const fetchSharedTracks = useCallback(async () => {
     try {
@@ -144,8 +144,8 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
             </p>
           </div>
 
-          {/* Upload Button (Hybrid only) */}
-          {isHybrid && (
+          {/* Upload Button (Hybrid Producer only) */}
+          {isProducer && (
             <div className="flex items-center gap-3">
               <input
                 type="file"
@@ -215,7 +215,7 @@ export default function SharedTracks({ onLoadTrack }: { onLoadTrack: (url: strin
           <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">
             <Music className="w-12 h-12 mb-4" />
             <p className="text-sm">{searchQuery ? 'No matches found' : 'No shared tracks yet'}</p>
-            {isHybrid && !searchQuery && (
+            {isProducer && !searchQuery && (
               <p className="text-xs mt-1">Be the first to share a track!</p>
             )}
           </div>

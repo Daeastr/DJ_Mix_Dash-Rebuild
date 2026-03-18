@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Headphones, Mail, Lock, User, ChevronRight } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { UserTier } from '../types';
+import { HybridRole, UserTier } from '../types';
 
 export default function AuthPage() {
   const { signUp, signIn } = useAuth();
@@ -10,6 +10,7 @@ export default function AuthPage() {
   const [password, setPassword] = useState('');
   const [djName, setDjName] = useState('');
   const [tier, setTier] = useState<UserTier>('free');
+  const [hybridRole, setHybridRole] = useState<HybridRole>('producer');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -20,7 +21,7 @@ export default function AuthPage() {
     try {
       if (mode === 'signup') {
         if (!djName.trim()) { setError('DJ name is required'); setLoading(false); return; }
-        await signUp(email, password, djName.trim(), tier);
+        await signUp(email, password, djName.trim(), tier, tier === 'hybrid' ? hybridRole : undefined);
       } else {
         await signIn(email, password);
       }
@@ -30,6 +31,7 @@ export default function AuthPage() {
       else if (code === 'auth/invalid-email') setError('Invalid email address');
       else if (code === 'auth/weak-password') setError('Password must be at least 6 characters');
       else if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') setError('Invalid email or password');
+      else if (code === 'auth/missing-hybrid-role') setError('Please select a role for your Hybrid account');
       else setError(err?.message || 'Authentication failed');
     }
     setLoading(false);
@@ -39,6 +41,11 @@ export default function AuthPage() {
     { value: 'free', label: 'FREE DJ', desc: 'Quick mixes up to 10s', color: '#00f5a0' },
     { value: 'pro', label: 'PRO DJ', desc: 'Extended drops + producer uploads', color: '#00e5ff' },
     { value: 'hybrid', label: 'HYBRID DJ', desc: 'Producer uploads + community sharing', color: '#bf00ff' },
+  ];
+
+  const hybridRoles: { value: HybridRole; label: string; desc: string }[] = [
+    { value: 'producer', label: 'PRODUCER', desc: 'Upload & share tracks with the community' },
+    { value: 'dj', label: 'DJ', desc: 'Browse & load community tracks' },
   ];
 
   return (
@@ -150,6 +157,31 @@ export default function AuthPage() {
                   </button>
                 ))}
               </div>
+
+              {/* Hybrid Role Selection */}
+              {tier === 'hybrid' && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="font-mono text-[0.6rem] text-muted tracking-widest uppercase">YOUR HYBRID ROLE</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {hybridRoles.map(r => (
+                      <button
+                        key={r.value}
+                        type="button"
+                        onClick={() => setHybridRole(r.value)}
+                        className="relative p-3 rounded-xl border text-center transition-all"
+                        style={{
+                          borderColor: hybridRole === r.value ? '#bf00ff' : 'var(--color-border)',
+                          backgroundColor: hybridRole === r.value ? '#bf00ff15' : 'transparent',
+                          boxShadow: hybridRole === r.value ? '0 0 20px #bf00ff30' : 'none',
+                        }}
+                      >
+                        <div className="font-bold text-[0.65rem] tracking-wider" style={{ color: '#bf00ff' }}>{r.label}</div>
+                        <div className="text-[0.5rem] text-muted mt-1 leading-tight">{r.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -73,6 +73,12 @@ export default async function handler(request: any, response: any): Promise<void
       return;
     }
 
+    // Only Producers in Hybrid accounts can post to the community shared tracks
+    if (!(profile.tier === 'hybrid' && profile.hybridRole === 'producer')) {
+      sendJson(response, 403, { code: 'auth/forbidden', error: 'Only Producers in Hybrid accounts can share tracks with the community' });
+      return;
+    }
+
     const body = readJsonBody<Partial<SharedTrack>>(request);
     if (!body?.name || !body?.storageUrl || typeof body?.fileSize !== 'number') {
       sendJson(response, 400, { error: 'Missing required fields' });
