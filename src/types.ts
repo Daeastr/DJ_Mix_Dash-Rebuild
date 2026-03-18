@@ -43,6 +43,7 @@ export interface DJState {
 }
 
 export type UserTier = 'free' | 'pro' | 'hybrid';
+export type HybridRole = 'producer' | 'dj';
 
 export interface UserProfile {
   uid: string;
