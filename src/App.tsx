@@ -1660,35 +1660,76 @@ function DJMixView({
             </div>
             <div className="text-[0.65rem] text-muted font-mono mt-0.5">{filteredSortedTracks.length} / {tracks.length} TRACKS</div>
           </div>
-          <div className="p-3 flex flex-col gap-3 flex-1 overflow-y-auto custom-scrollbar">
+          <div className="p-3 flex flex-col gap-4 flex-1 overflow-y-auto custom-scrollbar">
+            {/* Producers */}
             <div>
-              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Sort By</label>
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-accent outline-none">
-                <option value="bpm">BPM</option>
-                <option value="genre">Genre / Category</option>
-                <option value="producer">Producer / Artist</option>
-                <option value="newest">Newest Added</option>
-                <option value="oldest">Oldest Added</option>
-              </select>
+              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-2">Producers</label>
+              <div className="flex flex-col gap-0.5">
+                {uniqueProducers.filter(p => p !== 'all').map(p => (
+                  <button
+                    key={p}
+                    onClick={() => {
+                      setFilterProducer(filterProducer === p ? 'all' : p);
+                      setFilterGenre('all');
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[0.7rem] font-mono transition-colors truncate ${
+                      filterProducer === p
+                        ? 'bg-[#ffe600]/15 text-[#ffe600] border border-[#ffe600]/50'
+                        : 'text-muted hover:text-[#ffe600] hover:bg-[#ffe600]/5 border border-transparent'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+                {uniqueProducers.filter(p => p !== 'all').length === 0 && (
+                  <p className="text-[0.6rem] text-muted/40 font-mono px-2">No producers yet</p>
+                )}
+              </div>
             </div>
+            {/* Genres */}
             <div>
-              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Category / Genre</label>
-              <select value={filterGenre} onChange={e => setFilterGenre(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-[#00e5ff] outline-none">
-                {uniqueGenres.map(g => <option key={g} value={g}>{g === 'all' ? 'All Genres' : g}</option>)}
-              </select>
+              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-2">Genres</label>
+              <div className="flex flex-col gap-0.5">
+                {uniqueGenres.filter(g => g !== 'all').map(g => (
+                  <button
+                    key={g}
+                    onClick={() => {
+                      setFilterGenre(filterGenre === g ? 'all' : g);
+                      setFilterProducer('all');
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[0.7rem] font-mono transition-colors truncate ${
+                      filterGenre === g
+                        ? 'bg-[#00e5ff]/15 text-[#00e5ff] border border-[#00e5ff]/50'
+                        : 'text-muted hover:text-[#00e5ff] hover:bg-[#00e5ff]/5 border border-transparent'
+                    }`}
+                  >
+                    {g}
+                  </button>
+                ))}
+                {uniqueGenres.filter(g => g !== 'all').length === 0 && (
+                  <p className="text-[0.6rem] text-muted/40 font-mono px-2">No genres yet</p>
+                )}
+              </div>
             </div>
-            <div>
-              <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Producer / Artist</label>
-              <select value={filterProducer} onChange={e => setFilterProducer(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-[#ffe600] outline-none">
-                {uniqueProducers.map(p => <option key={p} value={p}>{p === 'all' ? 'All Producers' : p}</option>)}
-              </select>
-            </div>
-            <button
-              onClick={() => { setSortBy('bpm'); setFilterGenre('all'); setFilterProducer('all'); }}
-              className="w-full py-1.5 rounded-lg text-[0.6rem] font-bold tracking-widest border border-[#00e5ff]/30 text-[#00e5ff]/60 hover:text-[#00e5ff] hover:border-[#00e5ff]/60 transition-colors"
-            >
-              RESET FILTERS
-            </button>
+            {/* Sort + Clear — only shown once something is selected */}
+            {(filterGenre !== 'all' || filterProducer !== 'all') && (
+              <>
+                <div>
+                  <label className="font-mono text-[0.55rem] text-muted uppercase tracking-widest block mb-1">Sort By</label>
+                  <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="w-full bg-bg border border-border rounded-lg py-1.5 px-2 text-[0.7rem] font-mono text-accent outline-none">
+                    <option value="bpm">BPM</option>
+                    <option value="newest">Newest Added</option>
+                    <option value="oldest">Oldest Added</option>
+                  </select>
+                </div>
+                <button
+                  onClick={() => { setSortBy('bpm'); setFilterGenre('all'); setFilterProducer('all'); }}
+                  className="w-full py-1.5 rounded-lg text-[0.6rem] font-bold tracking-widest border border-[#00e5ff]/30 text-[#00e5ff]/60 hover:text-[#00e5ff] hover:border-[#00e5ff]/60 transition-colors"
+                >
+                  CLEAR SELECTION
+                </button>
+              </>
+            )}
           </div>
         </aside>
 
@@ -1700,18 +1741,24 @@ function DJMixView({
               <p className="text-sm">No tracks available yet</p>
               <p className="text-xs mt-1">{isHybrid ? 'Switch to Producer view to upload tracks' : 'Check back later or browse the Community tab'}</p>
             </div>
+          ) : filterGenre === 'all' && filterProducer === 'all' ? (
+            <div className="flex flex-col items-center justify-center py-20 text-muted opacity-40">
+              <Music className="w-14 h-14 mb-5 opacity-50" />
+              <p className="text-sm font-bebas tracking-[3px]">Select a Category</p>
+              <p className="text-xs mt-2 font-mono opacity-70 text-center leading-relaxed">Pick a Producer or Genre<br/>from the sidebar to browse their tracks</p>
+            </div>
           ) : filteredSortedTracks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-muted opacity-30">
               <Activity className="w-12 h-12 mb-4" />
-              <p className="text-sm">No tracks match your filters</p>
+              <p className="text-sm">No tracks match your selection</p>
             </div>
           ) : (
             <div>
               <div className="flex items-center gap-3 mb-6">
                 <span className="font-bebas text-lg tracking-[2px] text-[#00e5ff]/60">{filteredSortedTracks.length} TRACK{filteredSortedTracks.length !== 1 ? 'S' : ''}</span>
-                {(filterGenre !== 'all' || filterProducer !== 'all') && (
-                  <span className="text-[0.6rem] font-mono text-muted bg-surface border border-border rounded-full px-2 py-0.5">FILTERED</span>
-                )}
+                <span className="text-[0.6rem] font-mono text-muted bg-surface border border-border rounded-full px-2 py-0.5">
+                  {filterProducer !== 'all' ? filterProducer : filterGenre}
+                </span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {filteredSortedTracks.map(track => (
