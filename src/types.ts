@@ -3,7 +3,7 @@ export type Genre = 'Electronic' | 'Hip Hop' | 'Rock' | 'Pop' | 'House' | 'Techn
 export interface Track {
   id: string;
   name: string;
-  file: File;
+  file?: File;  // undefined for community stubs — downloaded on first deck load
   url: string;
   storageUrl?: string;
   duration: number;

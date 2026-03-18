@@ -165,6 +165,22 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
     } satisfies Track;
   }, []);
 
+  /** Build a lightweight Track stub from SharedTrack metadata.
+   *  No audio is downloaded — the file is fetched lazily when the track is
+   *  first loaded into a deck.  This makes startup instant for all tiers. */
+  const makeCommunityStub = useCallback((t: SharedTrack): Track => ({
+    id: t.id,
+    name: t.name,
+    url: t.storageUrl,        // direct Vercel Blob URL used as fallback src
+    storageUrl: t.storageUrl,
+    duration: t.duration,
+    bpm: t.bpm || 0,
+    genre: t.genre,
+    producer: t.producer || t.uploaderName,
+    addedAt: t.uploadedAt,
+    color: `hsl(${(t.name.charCodeAt(0) * 37 + t.id.charCodeAt(0) * 13) % 360}, 65%, 58%)`,
+  }), []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -172,7 +188,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
       if (!profile || !engineRef.current) return;
 
       if (canUseProducerTools) {
-        // Hybrid: load personal producer library
+        // Hybrid: load personal producer library (full audio — needed to re-play own uploads)
         try {
           const savedTracks = await parseJsonResponse<ProducerLibraryTrack[]>(await fetch('/api/library'));
           const restoredTracks: Track[] = [];
@@ -191,25 +207,32 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
               Object.fromEntries(restoredTracks.map(track => [track.id, 'saved'])) as Record<string, 'saved'>
             );
           }
+
+          // Also surface other producers' community tracks as stubs so Hybrid DJs
+          // can mix them without switching to the Community tab every time.
+          try {
+            const communityTracks = await parseJsonResponse<SharedTrack[]>(await fetch('/api/tracks'));
+            const ownStorageUrls = new Set(restoredTracks.map(t => t.storageUrl).filter(Boolean));
+            const foreignStubs = communityTracks
+              .filter(t => !ownStorageUrls.has(t.storageUrl))
+              .map(makeCommunityStub);
+            if (!cancelled && foreignStubs.length > 0) {
+              setTracks(prev => [...prev, ...foreignStubs]);
+            }
+          } catch {
+            // Non-critical: community tracks will still be accessible via Community tab
+          }
         } catch (error) {
           console.error('Failed to load producer library:', error);
         }
       } else {
-        // Free / Pro DJ: populate the mix library from community tracks
+        // Free / Pro DJ: populate library with metadata stubs only.
+        // Audio is downloaded on-demand when the DJ loads a track to a deck,
+        // so startup is instant regardless of how many community tracks exist.
         try {
           const communityTracks = await parseJsonResponse<SharedTrack[]>(await fetch('/api/tracks'));
-          const restoredTracks: Track[] = [];
-
-          for (const t of communityTracks) {
-            try {
-              restoredTracks.push(await restoreLibraryTrack(t));
-            } catch (error) {
-              console.error('Failed to load community track:', error);
-            }
-          }
-
           if (!cancelled) {
-            setTracks(restoredTracks);
+            setTracks(communityTracks.map(makeCommunityStub));
           }
         } catch (error) {
           console.error('Failed to load community tracks:', error);
@@ -222,7 +245,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
     return () => {
       cancelled = true;
     };
-  }, [profile?.uid, canUseProducerTools, restoreLibraryTrack, profile]);
+  }, [profile?.uid, canUseProducerTools, restoreLibraryTrack, makeCommunityStub, profile]);
 
   // Initialize Engine
   useEffect(() => {
@@ -412,6 +435,14 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
   }, [trackPersistenceState]);
 
   const loadSharedTrack = useCallback(async (url: string, name: string) => {
+    // If a stub (or full track) for this URL is already in the library, just navigate to DJ MIX
+    const existing = tracksRef.current.find(t => t.storageUrl === url);
+    if (existing) {
+      setViewMode('dj');
+      showToast(`"${name}" is in your library — drag it to a deck`);
+      return;
+    }
+    // Fallback: track not pre-loaded, download it now
     showToast(`Loading "${name}" from community...`);
     try {
       const response = await fetch(url);
@@ -421,7 +452,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
       const localUrl = URL.createObjectURL(blob);
       const producer = name.includes(' - ') ? name.split(' - ')[0].trim() : 'Community';
       const tempTrack: Track = {
-        id, name, file, url: localUrl, duration: 0, bpm: 'Analyzing...',
+        id, name, file, url: localUrl, storageUrl: url, duration: 0, bpm: 'Analyzing...',
         genre: 'Unknown', producer, addedAt: Date.now(),
         color: `hsl(${Math.random() * 360}, 70%, 60%)`
       };
@@ -430,6 +461,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
         const analysis = await analyzeAudio(file, engineRef.current.context);
         setTracks(prev => prev.map(t => t.id === id ? { ...t, ...analysis } : t));
       }
+      setViewMode('dj');
       showToast(`"${name}" added to library`);
     } catch (err) {
       console.error('Failed to load shared track:', err);
@@ -475,13 +507,38 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
       engineRef.current.context.resume();
     }
 
-    if (!track.audioBuffer) {
+    let audioBuffer = track.audioBuffer;
+
+    // ── On-demand load for community stubs (no audioBuffer yet) ──────────────
+    if (!audioBuffer && track.storageUrl) {
+      showToast(`Fetching "${track.name}"…`);
+      try {
+        const res = await fetch(track.storageUrl);
+        const blob = await res.blob();
+        const file = new File([blob], `${track.name}.mp3`, { type: blob.type || 'audio/mpeg' });
+        const localUrl = URL.createObjectURL(blob);
+        const analysis = await analyzeAudio(file, engineRef.current.context);
+        audioBuffer = analysis.audioBuffer;
+        // Upgrade the stub track in state with real audio data
+        setTracks(prev => prev.map(t =>
+          t.id === trackId
+            ? { ...t, file, url: localUrl, audioBuffer: analysis.audioBuffer, bpm: analysis.bpm, genre: analysis.genre, duration: analysis.duration }
+            : t
+        ));
+      } catch (err) {
+        console.error('Failed to load track on demand:', err);
+        showToast(`Failed to load "${track.name}"`, 'error');
+        return;
+      }
+    }
+
+    if (!audioBuffer) {
       showToast('Track is still analyzing or failed to load', 'error');
       return;
     }
 
     const deck = deckKey === 'A' ? engineRef.current.deckA : engineRef.current.deckB;
-    deck.load(track.audioBuffer);
+    deck.load(audioBuffer);
     if (typeof track.bpm === 'number') {
       deck.bpm = track.bpm;
     }
