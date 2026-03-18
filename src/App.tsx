@@ -22,7 +22,8 @@ import {
   Check,
   Cloud,
   LoaderCircle,
-  Trash2
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Track, DeckState, ProducerLibraryTrack, SharedTrack, UserTier } from './types';
@@ -180,6 +181,30 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
     addedAt: t.uploadedAt,
     color: `hsl(${(t.name.charCodeAt(0) * 37 + t.id.charCodeAt(0) * 13) % 360}, 65%, 58%)`,
   }), []);
+
+  /** Re-fetch all community stubs from /api/tracks and merge any NEW ones into state.
+   *  Tracks already present (matched by storageUrl) are skipped — so producer's own
+   *  full-audio tracks are never overwritten.  Called after each upload and on focus. */
+  const refreshCommunityStubs = useCallback(async () => {
+    try {
+      const communityTracks = await parseJsonResponse<SharedTrack[]>(await fetch('/api/tracks'));
+      setTracks(prev => {
+        const existingUrls = new Set(prev.map(t => t.storageUrl).filter(Boolean));
+        const newStubs = communityTracks
+          .filter(t => t.storageUrl && !existingUrls.has(t.storageUrl))
+          .map(makeCommunityStub);
+        return newStubs.length > 0 ? [...prev, ...newStubs] : prev;
+      });
+    } catch {
+      // Non-critical: sidebar keeps whatever was loaded at startup
+    }
+  }, [makeCommunityStub]);
+
+  // Auto-refresh stubs whenever the user returns to the browser tab.
+  useEffect(() => {
+    window.addEventListener('focus', refreshCommunityStubs);
+    return () => window.removeEventListener('focus', refreshCommunityStubs);
+  }, [refreshCommunityStubs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -356,6 +381,9 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
               return next;
             });
             showToast(`Saved "${tempTrack.name}" to your producer library`);
+            // Refresh community stubs so any OTHER producers' new uploads since
+            // startup are also now visible in the DJ MIX sidebar.
+            refreshCommunityStubs();
           } catch (saveError) {
             console.error('Failed to save producer track:', saveError);
             setTrackPersistenceState(prev => {
@@ -1426,6 +1454,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
           startAutoMix={startAutoMix}
           tierIntervals={tierIntervals}
           isHybrid={canUseProducerTools}
+          onRefresh={refreshCommunityStubs}
         />
       ) : (
         <SharedTracks />
@@ -1454,7 +1483,7 @@ function DJMixView({
   uniqueGenres, uniqueProducers, sortBy, setSortBy, filterGenre, setFilterGenre,
   filterProducer, setFilterProducer, onTogglePlay, onEQChange, onFilterChange,
   onTempoChange, onDropTrack, onRandomizeStart, onTriggerFX, onPlayFullSong,
-  onAddToMix, setDecks, startAutoMix, tierIntervals, isHybrid,
+  onAddToMix, setDecks, startAutoMix, tierIntervals, isHybrid, onRefresh,
 }: {
   decks: { A: DeckState; B: DeckState };
   tracks: Track[];
@@ -1497,6 +1526,7 @@ function DJMixView({
   startAutoMix: () => void;
   tierIntervals: number[];
   isHybrid: boolean;
+  onRefresh: () => void;
 }) {
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
@@ -1618,7 +1648,16 @@ function DJMixView({
         {/* Filter Sidebar */}
         <aside className="border-r border-border bg-surface flex flex-col overflow-hidden">
           <div className="p-4 border-b border-border">
-            <div className="font-bebas text-lg tracking-[3px] text-[#00e5ff] drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]">BROWSE</div>
+            <div className="flex items-center justify-between">
+              <div className="font-bebas text-lg tracking-[3px] text-[#00e5ff] drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]">BROWSE</div>
+              <button
+                onClick={onRefresh}
+                title="Sync new tracks from producers"
+                className="p-1 rounded hover:bg-[#00e5ff]/10 text-[#00e5ff]/60 hover:text-[#00e5ff] transition-colors"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
             <div className="text-[0.65rem] text-muted font-mono mt-0.5">{filteredSortedTracks.length} / {tracks.length} TRACKS</div>
           </div>
           <div className="p-3 flex flex-col gap-3 flex-1 overflow-y-auto custom-scrollbar">
