@@ -44,16 +44,11 @@ export interface DJState {
 
 export type UserTier = 'free' | 'pro' | 'hybrid';
 
-/** Role within a Hybrid account. Only 'producer' can upload & share tracks. */
-export type HybridRole = 'producer' | 'dj';
-
 export interface UserProfile {
   uid: string;
   email: string;
   djName: string;
   tier: UserTier;
-  /** Only present for hybrid-tier accounts. */
-  hybridRole?: HybridRole;
   createdAt: number;
 }
 

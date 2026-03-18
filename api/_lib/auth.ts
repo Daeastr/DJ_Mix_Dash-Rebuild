@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import type { HybridRole, UserProfile, UserTier } from '../../src/types';
+import type { UserProfile, UserTier } from '../../src/types';
 import { loadJsonFile, saveJsonFile } from './blobStore.js';
 
 const USERS_PATH = '_meta/users.json';
@@ -73,7 +73,7 @@ export function authError(code: string, message: string, status = 400) {
   return Response.json({ code, error: message }, { status });
 }
 
-export async function createAccount(input: { email: string; password: string; djName: string; tier: UserTier; hybridRole?: HybridRole }) {
+export async function createAccount(input: { email: string; password: string; djName: string; tier: UserTier }) {
   const email = normalizeEmail(input.email);
   const djName = input.djName.trim();
 
@@ -89,10 +89,6 @@ export async function createAccount(input: { email: string; password: string; dj
     throw { code: 'auth/invalid-dj-name', message: 'DJ name is required', status: 400 };
   }
 
-  if (input.tier === 'hybrid' && !input.hybridRole) {
-    throw { code: 'auth/missing-hybrid-role', message: 'Hybrid accounts must select a role (producer or dj)', status: 400 };
-  }
-
   const accounts = await readAccounts();
   if (accounts.some(account => account.profile.email.toLowerCase() === email)) {
     throw { code: 'auth/email-already-in-use', message: 'Email already in use', status: 409 };
@@ -104,7 +100,6 @@ export async function createAccount(input: { email: string; password: string; dj
     email,
     djName,
     tier: input.tier,
-    hybridRole: input.tier === 'hybrid' ? input.hybridRole : undefined,
     createdAt: Date.now(),
   };
 
