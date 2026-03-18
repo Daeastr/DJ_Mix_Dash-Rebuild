@@ -1428,7 +1428,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
           isHybrid={canUseProducerTools}
         />
       ) : (
-        <SharedTracks onLoadTrack={loadSharedTrack} />
+        <SharedTracks />
       )}
 
       {/* Toast */}

@@ -79,3 +79,28 @@ export interface ProducerLibraryTrack {
   fileSize: number;
   uploadedAt: number;
 }
+
+export type PostType = 'general' | 'question' | 'track_spotlight';
+
+export interface CommunityPost {
+  id: string;
+  type: PostType;
+  title: string;
+  body: string;
+  authorId: string;
+  authorName: string;
+  createdAt: number;
+  likes: string[];       // array of uids that liked
+  commentCount: number;
+  trackRef?: { name: string; producer: string };
+}
+
+export interface CommunityComment {
+  id: string;
+  postId: string;
+  body: string;
+  authorId: string;
+  authorName: string;
+  createdAt: number;
+  likes: string[];       // array of uids that liked
+}
