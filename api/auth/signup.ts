@@ -1,4 +1,4 @@
-import type { UserTier } from '../../src/types';
+import type { HybridRole, UserTier } from '../../src/types';
 import { authError, buildSessionCookie, createAccount } from '../_lib/auth.js';
 import { readJsonBody, sendJson } from '../_lib/nodeApi.js';
 
@@ -16,6 +16,7 @@ export default async function handler(request: any, response: any): Promise<void
       password?: string;
       djName?: string;
       tier?: UserTier;
+      hybridRole?: HybridRole;
     }>(request);
 
     const profile = await createAccount({
@@ -23,6 +24,7 @@ export default async function handler(request: any, response: any): Promise<void
       password: body.password ?? '',
       djName: body.djName ?? '',
       tier: body.tier ?? 'free',
+      hybridRole: body.hybridRole,
     });
 
     sendJson(response, 201, { user: { uid: profile.uid, email: profile.email }, profile }, {

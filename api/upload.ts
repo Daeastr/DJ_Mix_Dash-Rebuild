@@ -25,6 +25,12 @@ export default async function handler(request: any, response: any): Promise<void
     return;
   }
 
+  // Only Producers in Hybrid accounts can upload to the shared community tracks path
+  if (isSharedTrackPath && !(profile.tier === 'hybrid' && profile.hybridRole === 'producer')) {
+    sendJson(response, 403, { error: 'Only Producers in Hybrid accounts can share tracks with the community' });
+    return;
+  }
+
   try {
     const jsonResponse = await handleUpload({
       body,

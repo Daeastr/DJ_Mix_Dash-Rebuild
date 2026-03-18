@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { UserProfile, UserTier } from '../types';
+import { HybridRole, UserProfile, UserTier } from '../types';
 
 interface AuthUser {
   uid: string;
@@ -11,7 +11,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   firebaseReady: boolean;
-  signUp: (email: string, password: string, djName: string, tier: UserTier) => Promise<void>;
+  signUp: (email: string, password: string, djName: string, tier: UserTier, hybridRole?: HybridRole) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateTier: (tier: UserTier) => Promise<void>;
@@ -88,11 +88,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string, djName: string, tier: UserTier) => {
+  const signUp = useCallback(async (email: string, password: string, djName: string, tier: UserTier, hybridRole?: HybridRole) => {
     const session = await parseAuthResponse(await fetch('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, djName, tier }),
+      body: JSON.stringify({ email, password, djName, tier, hybridRole }),
     }));
     setUser(session.user);
     setProfile(session.profile);
