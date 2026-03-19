@@ -52,18 +52,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
   if (body.action === 'shuffle') {
     // Move request to end of queue and re-number all pending requests
-    const pendingIds = queueData.requests
-      .filter(r => r.status === 'pending' && r.id !== body.requestId)
-      .map(r => r.id);
-    // Assign new positions: other pending items first, shuffled item last
     let pos = 1;
-    for (const r of queueData.requests) {
-      if (r.status !== 'pending') continue;
-      if (pendingIds.includes(r.id)) {
-        r.queuePosition = pos++;
-      }
-    }
-    queueData.requests[idx] = { ...request, queuePosition: pos };
+    queueData.requests = queueData.requests.map(r => {
+      if (r.status !== 'pending') return r;
+      if (r.id === body.requestId) return r; // handled below after pos is finalized
+      return { ...r, queuePosition: pos++ };
+    });
+    // Place the shuffled request at the end
+    queueData.requests = queueData.requests.map(r =>
+      r.id === body.requestId ? { ...r, queuePosition: pos } : r
+    );
     await saveQueue(queueData);
     return res.json({ ok: true });
   }

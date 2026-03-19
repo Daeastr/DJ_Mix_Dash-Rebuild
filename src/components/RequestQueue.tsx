@@ -9,7 +9,7 @@ interface RequestQueueProps {
   onLoadTrack?: (trackName: string, blobUrl?: string) => void;
 }
 
-export default function RequestQueue({ queue, onAccept, onSkip, onShuffle }: RequestQueueProps) {
+export default function RequestQueue({ queue, onAccept, onSkip, onShuffle, onLoadTrack }: RequestQueueProps) {
   if (queue.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-6 text-muted/40 text-[0.65rem] font-mono text-center">
@@ -36,7 +36,7 @@ export default function RequestQueue({ queue, onAccept, onSkip, onShuffle }: Req
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => onAccept(next.id)}
+            onClick={() => { onAccept(next.id); onLoadTrack?.(next.trackName); }}
             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/30 rounded-lg text-[0.65rem] font-bold transition-colors"
           >
             <Check className="w-3.5 h-3.5" /> ACCEPT

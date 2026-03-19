@@ -490,41 +490,6 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
     };
   }, [trackPersistenceState]);
 
-  const loadSharedTrack = useCallback(async (url: string, name: string) => {
-    // If a stub (or full track) for this URL is already in the library, just navigate to DJ MIX
-    const existing = tracksRef.current.find(t => t.storageUrl === url);
-    if (existing) {
-      setViewMode('dj');
-      showToast(`"${name}" is in your library — drag it to a deck`);
-      return;
-    }
-    // Fallback: track not pre-loaded, download it now
-    showToast(`Loading "${name}" from community...`);
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const file = new File([blob], `${name}.mp3`, { type: blob.type || 'audio/mpeg' });
-      const id = Math.random().toString(36).substring(7);
-      const localUrl = URL.createObjectURL(blob);
-      const producer = name.includes(' - ') ? name.split(' - ')[0].trim() : 'Community';
-      const tempTrack: Track = {
-        id, name, file, url: localUrl, storageUrl: url, duration: 0, bpm: 'Analyzing...',
-        genre: 'Unknown', producer, addedAt: Date.now(),
-        color: `hsl(${Math.random() * 360}, 70%, 60%)`
-      };
-      setTracks(prev => [...prev, tempTrack]);
-      if (engineRef.current) {
-        const analysis = await analyzeAudio(file, engineRef.current.context);
-        setTracks(prev => prev.map(t => t.id === id ? { ...t, ...analysis } : t));
-      }
-      setViewMode('dj');
-      showToast(`"${name}" added to library`);
-    } catch (err) {
-      console.error('Failed to load shared track:', err);
-      showToast(`Failed to load "${name}"`, 'error');
-    }
-  }, [showToast]);
-
   const getNextTrackId = useCallback((currentTrackId?: string) => {
     if (mixQueueRef.current.length > 0) {
       const nextId = mixQueueRef.current[0];
