@@ -1,5 +1,5 @@
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
-import { authError, getSessionProfile } from './_lib/auth.js';
+import { getSessionProfile } from './_lib/auth.js';
 import { readJsonBody, sendJson, toWebRequest } from './_lib/nodeApi.js';
 
 export const config = { runtime: 'nodejs' };

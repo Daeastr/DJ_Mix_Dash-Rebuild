@@ -50,6 +50,7 @@ export interface UserProfile {
   email: string;
   djName: string;
   tier: UserTier;
+  hybridRole?: HybridRole;
   createdAt: number;
 }
 
