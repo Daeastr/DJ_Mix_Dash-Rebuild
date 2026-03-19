@@ -127,5 +127,3 @@ export function deriveInitials(username: string): string {
   }
   return username.slice(0, 2).toUpperCase();
 }
-
-export { MAX_QUEUE };
