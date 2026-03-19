@@ -59,8 +59,8 @@ const EVENTS_PATH = '_meta/events.json';
 const QUEUE_PATH = '_meta/queue.json';
 const MUTED_PATH = '_meta/muted.json';
 
-const MAX_EVENTS = 200;
-const MAX_QUEUE = 20;
+export const MAX_EVENTS = 200;
+export const MAX_QUEUE = 20;
 const USER_TIMEOUT_MS = 20000; // 20s without heartbeat = offline
 
 interface PresenceData { users: OnlineUser[]; lastUpdate: number; }

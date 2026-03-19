@@ -1534,6 +1534,7 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
             onQueueShuffle={(id) => void community.handleQueueAction('shuffle', id)}
             onDeleteMessage={(id) => void community.moderateAction('delete_message', { messageId: id })}
             onMuteUser={(uid, username, duration) => void community.moderateAction('mute_user', { targetUserId: uid, targetUsername: username, duration })}
+            onGiveVip={(uid) => void community.moderateAction('give_vip', { targetUserId: uid })}
             onLoadTrackFromRequest={loadTrackFromRequest}
           />
         </div>
@@ -1872,6 +1873,7 @@ function DJMixView({
   );
 }
 
+// 60-second cooldown prevents DJ from spamming replay events per the feature spec
 const REPLAY_COOLDOWN_SECONDS = 60;
 
 function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChange, onTempoChange, onDropTrack, onRandomizeStart, onTriggerFX, isDJ, onReplay }: {

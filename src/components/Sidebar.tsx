@@ -24,6 +24,7 @@ interface SidebarProps {
   onQueueShuffle: (requestId: string) => void;
   onDeleteMessage: (id: string) => void;
   onMuteUser: (userId: string, username: string, duration: number | null) => void;
+  onGiveVip: (userId: string) => void;
   onLoadTrackFromRequest?: (trackName: string, blobUrl?: string) => void;
 }
 
@@ -47,7 +48,7 @@ export default function Sidebar({
   currentUserId, currentUserRole, isDJ, isConnected, communityTracks,
   onSendChat, onSubmitRequest, onSendShoutout,
   onQueueAccept, onQueueSkip, onQueueShuffle,
-  onDeleteMessage, onMuteUser, onLoadTrackFromRequest,
+  onDeleteMessage, onMuteUser, onGiveVip, onLoadTrackFromRequest,
 }: SidebarProps) {
   const [chatInput, setChatInput] = useState('');
   const [djChatInput, setDjChatInput] = useState('');
@@ -388,14 +389,7 @@ export default function Sidebar({
             🎙 Shoutout
           </button>
           <button
-            onClick={async () => {
-              await fetch('/api/moderation', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'give_vip', targetUserId: userContextMenu.user.uid }),
-              });
-              setUserContextMenu(null);
-            }}
+            onClick={() => { onGiveVip(userContextMenu.user.uid); setUserContextMenu(null); }}
             className="w-full text-left px-4 py-2 hover:bg-surface2 text-[#ffe600] flex items-center gap-2 transition-colors"
           >
             <Star className="w-3.5 h-3.5" /> Give VIP
