@@ -23,7 +23,8 @@ import {
   Cloud,
   LoaderCircle,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Track, DeckState, ProducerLibraryTrack, SharedTrack, UserTier } from './types';
@@ -32,6 +33,8 @@ import { DJEngine } from './utils/engine';
 import { useAuth } from './auth/AuthContext';
 import AuthPage from './components/AuthPage';
 import SharedTracks from './components/SharedTracks';
+import { useCommunity } from './hooks/useCommunity';
+import Sidebar from './components/Sidebar';
 
 const TIER_INTERVALS: Record<UserTier, number[]> = {
   free: [5, 10],
@@ -104,6 +107,27 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
   const [filterGenre, setFilterGenre] = useState('all');
   const [filterProducer, setFilterProducer] = useState('all');
   const [trackPersistenceState, setTrackPersistenceState] = useState<Record<string, 'saving' | 'saved' | 'deleting'>>({});
+
+  // Community / Sidebar
+  const guestId = React.useMemo(() => {
+    try {
+      let id = localStorage.getItem('dj_guest_id');
+      if (!id) {
+        id = typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2, 10);
+        localStorage.setItem('dj_guest_id', id);
+      }
+      return id;
+    } catch { return 'anon'; }
+  }, []);
+
+  const community = useCommunity({
+    userProfile: profile ? { uid: profile.uid, djName: profile.djName, tier: profile.tier } : null,
+    guestId: profile ? undefined : guestId,
+    guestName: profile ? undefined : `guest_${guestId.slice(-4)}`,
+  });
+  const isDJ = profile?.tier === 'hybrid';
 
   const engineRef = useRef<DJEngine | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -466,41 +490,6 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
     };
   }, [trackPersistenceState]);
 
-  const loadSharedTrack = useCallback(async (url: string, name: string) => {
-    // If a stub (or full track) for this URL is already in the library, just navigate to DJ MIX
-    const existing = tracksRef.current.find(t => t.storageUrl === url);
-    if (existing) {
-      setViewMode('dj');
-      showToast(`"${name}" is in your library — drag it to a deck`);
-      return;
-    }
-    // Fallback: track not pre-loaded, download it now
-    showToast(`Loading "${name}" from community...`);
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const file = new File([blob], `${name}.mp3`, { type: blob.type || 'audio/mpeg' });
-      const id = Math.random().toString(36).substring(7);
-      const localUrl = URL.createObjectURL(blob);
-      const producer = name.includes(' - ') ? name.split(' - ')[0].trim() : 'Community';
-      const tempTrack: Track = {
-        id, name, file, url: localUrl, storageUrl: url, duration: 0, bpm: 'Analyzing...',
-        genre: 'Unknown', producer, addedAt: Date.now(),
-        color: `hsl(${Math.random() * 360}, 70%, 60%)`
-      };
-      setTracks(prev => [...prev, tempTrack]);
-      if (engineRef.current) {
-        const analysis = await analyzeAudio(file, engineRef.current.context);
-        setTracks(prev => prev.map(t => t.id === id ? { ...t, ...analysis } : t));
-      }
-      setViewMode('dj');
-      showToast(`"${name}" added to library`);
-    } catch (err) {
-      console.error('Failed to load shared track:', err);
-      showToast(`Failed to load "${name}"`, 'error');
-    }
-  }, [showToast]);
-
   const getNextTrackId = useCallback((currentTrackId?: string) => {
     if (mixQueueRef.current.length > 0) {
       const nextId = mixQueueRef.current[0];
@@ -584,6 +573,16 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
       autoDropTriggeredRef.current = false;
     }
   }, [showToast]);
+
+  const loadTrackFromRequest = useCallback((trackName: string, blobUrl?: string) => {
+    const existingTrack = tracks.find(t =>
+      blobUrl ? (t.storageUrl === blobUrl || t.url === blobUrl) : t.name.toLowerCase() === trackName.toLowerCase()
+    );
+    if (existingTrack) {
+      const idleDeck: 'A' | 'B' = decks.B.trackId === null ? 'B' : (decks.A.isPlaying ? 'B' : 'A');
+      void loadToDeck(existingTrack.id, idleDeck);
+    }
+  }, [tracks, decks, loadToDeck]);
 
   const setDeckPlayState = useCallback(async (deckKey: 'A' | 'B', play: boolean) => {
     if (!engineRef.current) return;
@@ -1004,6 +1003,12 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
         <div className="flex gap-6 items-center">
           <div className="stat-pill">TRACKS <span className="val">{tracks.length}</span></div>
           <div className="stat-pill">MIX QUEUE <span className="val">{mixQueue.length}</span></div>
+          {community.onlineUsers.length > 0 && (
+            <div className="stat-pill">
+              <span className="text-[#00e5ff]">{community.onlineUsers.length}</span>
+              <span className="val ml-1">watching</span>
+            </div>
+          )}
           {/* View Mode Toggle */}
           <div className="flex bg-surface border border-border rounded-xl p-1 gap-0.5 ml-2">
             {canUseProducerTools && (
@@ -1062,6 +1067,14 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
             </button>
           </div>
           )}
+          {/* Sidebar Toggle */}
+          <button
+            onClick={community.toggleSidebar}
+            title={community.sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            className={`p-1.5 rounded-lg transition-colors ml-1 ${community.sidebarOpen ? 'bg-surface text-accent' : 'text-muted hover:text-text hover:bg-surface'}`}
+          >
+            <MessageSquare className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
@@ -1412,50 +1425,84 @@ function AppMain({ profile, signOut }: { profile: import('./types').UserProfile 
         </main>
       </div>
       ) : viewMode === 'dj' ? (
-        <DJMixView
-          decks={decks}
-          tracks={tracks}
-          activeDeck={activeDeck}
-          activeDeckRef={activeDeckRef}
-          engineRef={engineRef}
-          crossfade={crossfade}
-          setCrossfade={setCrossfade}
-          fxIntensity={fxIntensity}
-          setFxIntensity={setFxIntensity}
-          isAutoDropEnabled={isAutoDropEnabled}
-          setIsAutoDropEnabled={setIsAutoDropEnabled}
-          autoDropMode={autoDropMode}
-          setAutoDropMode={setAutoDropMode}
-          autoDropInterval={autoDropInterval}
-          setAutoDropInterval={setAutoDropInterval}
-          autoDropOrder={autoDropOrder}
-          setAutoDropOrder={setAutoDropOrder}
-          countdownText={countdownText}
-          mixQueue={mixQueue}
-          filteredSortedTracks={filteredSortedTracks}
-          uniqueGenres={uniqueGenres}
-          uniqueProducers={uniqueProducers}
-          sortBy={sortBy}
-          setSortBy={setSortBy}
-          filterGenre={filterGenre}
-          setFilterGenre={setFilterGenre}
-          filterProducer={filterProducer}
-          setFilterProducer={setFilterProducer}
-          onTogglePlay={toggleDeckPlay}
-          onEQChange={(deck, band, val) => updateDeckEQ(deck, band, val)}
-          onFilterChange={(deck, val) => updateDeckFilter(deck, val)}
-          onTempoChange={(deck, val) => updateDeckTempo(deck, val)}
-          onDropTrack={(id, deck) => loadToDeck(id, deck)}
-          onRandomizeStart={randomizeStart}
-          onTriggerFX={(deck, fx, active) => triggerFX(deck, fx, active)}
-          onPlayFullSong={playFullSong}
-          onAddToMix={addToMix}
-          setDecks={setDecks}
-          startAutoMix={startAutoMix}
-          tierIntervals={tierIntervals}
-          isHybrid={canUseProducerTools}
-          onRefresh={refreshCommunityStubs}
-        />
+        <div className="flex-1 flex overflow-hidden">
+          <DJMixView
+            decks={decks}
+            tracks={tracks}
+            activeDeck={activeDeck}
+            activeDeckRef={activeDeckRef}
+            engineRef={engineRef}
+            crossfade={crossfade}
+            setCrossfade={setCrossfade}
+            fxIntensity={fxIntensity}
+            setFxIntensity={setFxIntensity}
+            isAutoDropEnabled={isAutoDropEnabled}
+            setIsAutoDropEnabled={setIsAutoDropEnabled}
+            autoDropMode={autoDropMode}
+            setAutoDropMode={setAutoDropMode}
+            autoDropInterval={autoDropInterval}
+            setAutoDropInterval={setAutoDropInterval}
+            autoDropOrder={autoDropOrder}
+            setAutoDropOrder={setAutoDropOrder}
+            countdownText={countdownText}
+            mixQueue={mixQueue}
+            filteredSortedTracks={filteredSortedTracks}
+            uniqueGenres={uniqueGenres}
+            uniqueProducers={uniqueProducers}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
+            filterGenre={filterGenre}
+            setFilterGenre={setFilterGenre}
+            filterProducer={filterProducer}
+            setFilterProducer={setFilterProducer}
+            onTogglePlay={toggleDeckPlay}
+            onEQChange={(deck, band, val) => updateDeckEQ(deck, band, val)}
+            onFilterChange={(deck, val) => updateDeckFilter(deck, val)}
+            onTempoChange={(deck, val) => updateDeckTempo(deck, val)}
+            onDropTrack={(id, deck) => loadToDeck(id, deck)}
+            onRandomizeStart={randomizeStart}
+            onTriggerFX={(deck, fx, active) => triggerFX(deck, fx, active)}
+            onPlayFullSong={playFullSong}
+            onAddToMix={addToMix}
+            setDecks={setDecks}
+            startAutoMix={startAutoMix}
+            tierIntervals={tierIntervals}
+            isHybrid={canUseProducerTools}
+            onRefresh={refreshCommunityStubs}
+            isDJ={isDJ}
+            onReplayDeck={async (deckKey) => {
+              const track = tracks.find(t => t.id === decks[deckKey].trackId);
+              if (!track) return;
+              const deck = deckKey === 'A' ? engineRef.current?.deckA : engineRef.current?.deckB;
+              if (!deck) return;
+              deck.seek(0);
+              setDecks(prev => ({ ...prev, [deckKey]: { ...prev[deckKey], currentTime: 0, startOffset: 0 } }));
+              await community.sendReplay(track.name);
+            }}
+          />
+          <Sidebar
+            isOpen={community.sidebarOpen}
+            onToggle={community.toggleSidebar}
+            onlineUsers={community.onlineUsers}
+            chatMessages={community.chatMessages}
+            requestQueue={community.requestQueue}
+            currentUserId={profile?.uid ?? null}
+            currentUserRole={isDJ ? 'dj' : 'listener'}
+            isDJ={isDJ}
+            isConnected={community.isConnected}
+            communityTracks={tracks.map(t => ({ name: t.name, storageUrl: t.storageUrl }))}
+            onSendChat={community.sendChat}
+            onSubmitRequest={community.submitRequest}
+            onSendShoutout={community.sendShoutout}
+            onQueueAccept={(id) => void community.handleQueueAction('accept', id)}
+            onQueueSkip={(id) => void community.handleQueueAction('skip', id)}
+            onQueueShuffle={(id) => void community.handleQueueAction('shuffle', id)}
+            onDeleteMessage={(id) => void community.moderateAction('delete_message', { messageId: id })}
+            onMuteUser={(uid, username, duration) => void community.moderateAction('mute_user', { targetUserId: uid, targetUsername: username, duration })}
+            onGiveVip={(uid) => void community.moderateAction('give_vip', { targetUserId: uid })}
+            onLoadTrackFromRequest={loadTrackFromRequest}
+          />
+        </div>
       ) : (
         <SharedTracks />
       )}
@@ -1483,7 +1530,7 @@ function DJMixView({
   uniqueGenres, uniqueProducers, sortBy, setSortBy, filterGenre, setFilterGenre,
   filterProducer, setFilterProducer, onTogglePlay, onEQChange, onFilterChange,
   onTempoChange, onDropTrack, onRandomizeStart, onTriggerFX, onPlayFullSong,
-  onAddToMix, setDecks, startAutoMix, tierIntervals, isHybrid, onRefresh,
+  onAddToMix, setDecks, startAutoMix, tierIntervals, isHybrid, onRefresh, isDJ, onReplayDeck,
 }: {
   decks: { A: DeckState; B: DeckState };
   tracks: Track[];
@@ -1527,6 +1574,8 @@ function DJMixView({
   tierIntervals: number[];
   isHybrid: boolean;
   onRefresh: () => void;
+  isDJ?: boolean;
+  onReplayDeck?: (deckKey: 'A' | 'B') => void;
 }) {
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
@@ -1584,6 +1633,8 @@ function DJMixView({
           onDropTrack={(id) => onDropTrack(id, 'A')}
           onRandomizeStart={() => onRandomizeStart('A')}
           onTriggerFX={(fx, active) => onTriggerFX('A', fx, active)}
+          isDJ={isDJ}
+          onReplay={onReplayDeck ? () => onReplayDeck('A') : undefined}
         />
 
         {/* Mixer Center */}
@@ -1640,6 +1691,8 @@ function DJMixView({
           onDropTrack={(id) => onDropTrack(id, 'B')}
           onRandomizeStart={() => onRandomizeStart('B')}
           onTriggerFX={(fx, active) => onTriggerFX('B', fx, active)}
+          isDJ={isDJ}
+          onReplay={onReplayDeck ? () => onReplayDeck('B') : undefined}
         />
       </div>
 
@@ -1785,7 +1838,10 @@ function DJMixView({
   );
 }
 
-function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChange, onTempoChange, onDropTrack, onRandomizeStart, onTriggerFX }: {
+// 60-second cooldown prevents DJ from spamming replay events per the feature spec
+const REPLAY_COOLDOWN_SECONDS = 60;
+
+function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChange, onTempoChange, onDropTrack, onRandomizeStart, onTriggerFX, isDJ, onReplay }: {
   deckKey: 'A' | 'B',
   state: DeckState,
   track?: Track,
@@ -1795,10 +1851,30 @@ function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChang
   onTempoChange: (val: number) => void,
   onDropTrack: (trackId: string) => void,
   onRandomizeStart: () => void,
-  onTriggerFX: (fx: string, active: boolean) => void
+  onTriggerFX: (fx: string, active: boolean) => void,
+  isDJ?: boolean,
+  onReplay?: () => void,
 }) {
   const [activeFX, setActiveFX] = useState<string | null>(null);
   const [lastUsedFX, setLastUsedFX] = useState<string | null>(null);
+
+  const [replayCooldown, setReplayCooldown] = useState(0);
+  const replayCooldownRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const handleReplay = React.useCallback(() => {
+    if (!onReplay || replayCooldown > 0) return;
+    onReplay();
+    setReplayCooldown(REPLAY_COOLDOWN_SECONDS);
+    const interval = setInterval(() => {
+      setReplayCooldown(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+    replayCooldownRef.current = interval;
+  }, [onReplay, replayCooldown]);
+
+  React.useEffect(() => () => { if (replayCooldownRef.current) clearInterval(replayCooldownRef.current); }, []);
 
   const fxPads = [
     { id: 'baby_scratch',  label: 'BABY SCRATCH',  neon: '#00e5ff' },
@@ -1831,9 +1907,21 @@ function DeckUI({ deckKey, state, track, onTogglePlay, onEQChange, onFilterChang
             <div className="text-[0.6rem] font-mono text-muted uppercase tracking-widest">DECK {deckKey}</div>
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-xl font-mono font-medium text-accent">{track?.bpm || '000'}</div>
-          <div className="text-[0.6rem] text-muted font-mono">BPM</div>
+        <div className="flex items-center gap-2">
+          {isDJ && onReplay && track && (
+            <button
+              onClick={handleReplay}
+              disabled={replayCooldown > 0}
+              title={replayCooldown > 0 ? `Replay available in ${replayCooldown}s` : 'Replay track'}
+              className="px-2 py-1 rounded-lg bg-[#ff9500]/10 hover:bg-[#ff9500]/20 text-[#ff9500] border border-[#ff9500]/30 text-[0.55rem] font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              ↩{replayCooldown > 0 ? ` ${replayCooldown}s` : ''}
+            </button>
+          )}
+          <div className="text-right">
+            <div className="text-xl font-mono font-medium text-accent">{track?.bpm || '000'}</div>
+            <div className="text-[0.6rem] text-muted font-mono">BPM</div>
+          </div>
         </div>
       </div>
 
